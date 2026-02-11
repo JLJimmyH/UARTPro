@@ -11,6 +11,29 @@ Window {
     visible: true
     title: "UART PRO // SERIAL TERMINAL v0.1"
     color: colorBg
+    flags: Qt.FramelessWindowHint | Qt.Window
+
+    // ── Frameless window state ────────────────────────────────────
+    property bool isMaximized: false
+    property rect restoreGeometry: Qt.rect(x, y, width, height)
+
+    onVisibilityChanged: {
+        if (visibility === Window.Maximized)
+            isMaximized = true
+        else if (visibility === Window.Windowed)
+            isMaximized = false
+    }
+
+    function toggleMaximize() {
+        if (isMaximized) {
+            root.showNormal()
+        } else {
+            restoreGeometry = Qt.rect(root.x, root.y, root.width, root.height)
+            root.showMaximized()
+        }
+    }
+    function minimizeWindow() { root.showMinimized() }
+    function closeWindow()    { root.close() }
 
     // ── Design Tokens ──────────────────────────────────────────────
     readonly property color colorBg:              "#0a0a0f"
@@ -99,18 +122,30 @@ Window {
         spacing: 0
         z: 1
 
-        // ── HEADER BAR ────────────────────────────────────────────
+        // ── HEADER BAR (custom title bar) ───────────────────────────
         Rectangle {
+            id: titleBar
             Layout.fillWidth: true
             Layout.preferredHeight: 52
             color: root.colorCard
             border.color: root.colorBorder
             border.width: 1
 
+            // Drag to move window
+            DragHandler {
+                target: null
+                onActiveChanged: if (active) root.startSystemMove()
+            }
+            // Double-tap to maximize/restore
+            TapHandler {
+                onDoubleTapped: root.toggleMaximize()
+                gesturePolicy: TapHandler.DragThreshold
+            }
+
             RowLayout {
                 anchors.fill: parent
                 anchors.leftMargin: 20
-                anchors.rightMargin: 20
+                anchors.rightMargin: 0
                 spacing: 12
 
                 // Glitch title
@@ -206,6 +241,125 @@ Window {
                         font.letterSpacing: 2
                         font.bold: true
                         color: serialManager.connected ? root.colorAccent : root.colorMutedFg
+                    }
+                }
+
+                // ── Separator before window controls ─────────
+                Rectangle {
+                    width: 1
+                    Layout.fillHeight: true
+                    Layout.topMargin: 12
+                    Layout.bottomMargin: 12
+                    color: root.colorBorder
+                }
+
+                // ── Window control buttons ───────────────────
+                Row {
+                    spacing: 0
+
+                    // Minimize
+                    Rectangle {
+                        width: 46; height: 52
+                        color: minimizeMa.containsMouse ? root.colorMuted : "transparent"
+                        Behavior on color { ColorAnimation { duration: 100 } }
+
+                        // ─ horizontal line icon
+                        Rectangle {
+                            width: 12; height: 1
+                            anchors.centerIn: parent
+                            color: minimizeMa.containsMouse ? root.colorAccentTertiary : root.colorMutedFg
+                            Behavior on color { ColorAnimation { duration: 100 } }
+                        }
+
+                        MouseArea {
+                            id: minimizeMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            onClicked: root.minimizeWindow()
+                        }
+                    }
+
+                    // Maximize / Restore
+                    Rectangle {
+                        width: 46; height: 52
+                        color: maximizeMa.containsMouse ? root.colorMuted : "transparent"
+                        Behavior on color { ColorAnimation { duration: 100 } }
+
+                        // □ square icon (maximize) or ⧉ overlapping squares (restore)
+                        Item {
+                            anchors.centerIn: parent
+                            width: 12; height: 12
+                            visible: !root.isMaximized
+                            Rectangle {
+                                anchors.fill: parent
+                                color: "transparent"
+                                border.width: 1
+                                border.color: maximizeMa.containsMouse ? root.colorAccent : root.colorMutedFg
+                                Behavior on border.color { ColorAnimation { duration: 100 } }
+                            }
+                        }
+                        Item {
+                            anchors.centerIn: parent
+                            width: 12; height: 12
+                            visible: root.isMaximized
+                            Rectangle {
+                                x: 2; y: 0; width: 9; height: 9
+                                color: "transparent"
+                                border.width: 1
+                                border.color: maximizeMa.containsMouse ? root.colorAccent : root.colorMutedFg
+                                Behavior on border.color { ColorAnimation { duration: 100 } }
+                            }
+                            Rectangle {
+                                x: 0; y: 3; width: 9; height: 9
+                                color: root.colorCard
+                                border.width: 1
+                                border.color: maximizeMa.containsMouse ? root.colorAccent : root.colorMutedFg
+                                Behavior on border.color { ColorAnimation { duration: 100 } }
+                            }
+                        }
+
+                        MouseArea {
+                            id: maximizeMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            onClicked: root.toggleMaximize()
+                        }
+                    }
+
+                    // Close
+                    Rectangle {
+                        width: 46; height: 52
+                        color: closeMa.containsMouse ? root.colorDestructive : "transparent"
+                        Behavior on color { ColorAnimation { duration: 100 } }
+
+                        // ✕ cross icon
+                        Item {
+                            anchors.centerIn: parent
+                            width: 14; height: 14
+                            Rectangle {
+                                width: 16; height: 1
+                                anchors.centerIn: parent
+                                rotation: 45
+                                antialiasing: true
+                                color: closeMa.containsMouse ? "#ffffff" : root.colorMutedFg
+                                Behavior on color { ColorAnimation { duration: 100 } }
+                            }
+                            Rectangle {
+                                width: 16; height: 1
+                                anchors.centerIn: parent
+                                rotation: -45
+                                antialiasing: true
+                                color: closeMa.containsMouse ? "#ffffff" : root.colorMutedFg
+                                Behavior on color { ColorAnimation { duration: 100 } }
+                            }
+                        }
+
+                        MouseArea {
+                            id: closeMa
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            onClicked: root.closeWindow()
+                        }
                     }
                 }
             }
@@ -765,6 +919,60 @@ Window {
             function onWidthChanged()  { parent.requestPaint() }
             function onHeightChanged() { parent.requestPaint() }
         }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // RESIZE HANDLES (frameless window)
+    // ══════════════════════════════════════════════════════════════
+    // Edges
+    MouseArea {
+        z: 200; visible: !root.isMaximized
+        width: 5; anchors { left: parent.left; top: parent.top; bottom: parent.bottom; topMargin: 5; bottomMargin: 5 }
+        cursorShape: Qt.SizeHorCursor
+        onPressed: root.startSystemResize(Qt.LeftEdge)
+    }
+    MouseArea {
+        z: 200; visible: !root.isMaximized
+        width: 5; anchors { right: parent.right; top: parent.top; bottom: parent.bottom; topMargin: 5; bottomMargin: 5 }
+        cursorShape: Qt.SizeHorCursor
+        onPressed: root.startSystemResize(Qt.RightEdge)
+    }
+    MouseArea {
+        z: 200; visible: !root.isMaximized
+        height: 5; anchors { top: parent.top; left: parent.left; right: parent.right; leftMargin: 5; rightMargin: 5 }
+        cursorShape: Qt.SizeVerCursor
+        onPressed: root.startSystemResize(Qt.TopEdge)
+    }
+    MouseArea {
+        z: 200; visible: !root.isMaximized
+        height: 5; anchors { bottom: parent.bottom; left: parent.left; right: parent.right; leftMargin: 5; rightMargin: 5 }
+        cursorShape: Qt.SizeVerCursor
+        onPressed: root.startSystemResize(Qt.BottomEdge)
+    }
+    // Corners
+    MouseArea {
+        z: 200; visible: !root.isMaximized
+        width: 8; height: 8; anchors { left: parent.left; top: parent.top }
+        cursorShape: Qt.SizeFDiagCursor
+        onPressed: root.startSystemResize(Qt.LeftEdge | Qt.TopEdge)
+    }
+    MouseArea {
+        z: 200; visible: !root.isMaximized
+        width: 8; height: 8; anchors { right: parent.right; top: parent.top }
+        cursorShape: Qt.SizeBDiagCursor
+        onPressed: root.startSystemResize(Qt.RightEdge | Qt.TopEdge)
+    }
+    MouseArea {
+        z: 200; visible: !root.isMaximized
+        width: 8; height: 8; anchors { left: parent.left; bottom: parent.bottom }
+        cursorShape: Qt.SizeBDiagCursor
+        onPressed: root.startSystemResize(Qt.LeftEdge | Qt.BottomEdge)
+    }
+    MouseArea {
+        z: 200; visible: !root.isMaximized
+        width: 8; height: 8; anchors { right: parent.right; bottom: parent.bottom }
+        cursorShape: Qt.SizeFDiagCursor
+        onPressed: root.startSystemResize(Qt.RightEdge | Qt.BottomEdge)
     }
 
     // ══════════════════════════════════════════════════════════════
