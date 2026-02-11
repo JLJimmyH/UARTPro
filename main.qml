@@ -1294,6 +1294,68 @@ Window {
                             opacity: 0.5
                         }
 
+                        // Auto-scroll paused overlay
+                        Rectangle {
+                            anchors.bottom: parent.bottom
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.margins: 8
+                            height: 32
+                            z: 5
+                            visible: !root.autoScroll && terminalModel.count > 0
+                            color: Qt.rgba(root.colorCard.r, root.colorCard.g, root.colorCard.b, 0.92)
+                            border.color: root.colorAccent
+                            border.width: 1
+
+                            opacity: !root.autoScroll && terminalModel.count > 0 ? 1.0 : 0.0
+                            Behavior on opacity { NumberAnimation { duration: 150 } }
+
+                            Row {
+                                anchors.centerIn: parent
+                                spacing: 12
+
+                                Text {
+                                    text: "\u23F8 AUTO-SCROLL PAUSED"
+                                    font.family: root.fontMono
+                                    font.pixelSize: 10
+                                    font.letterSpacing: 1
+                                    color: root.colorAccentTertiary
+                                    anchors.verticalCenter: parent.verticalCenter
+                                }
+
+                                Rectangle {
+                                    width: jumpText.width + 16
+                                    height: 22
+                                    color: jumpMa.containsMouse ? root.colorAccent : "transparent"
+                                    border.color: root.colorAccent
+                                    border.width: 1
+                                    anchors.verticalCenter: parent.verticalCenter
+
+                                    Text {
+                                        id: jumpText
+                                        anchors.centerIn: parent
+                                        text: "\u2193 JUMP TO LATEST"
+                                        font.family: root.fontMono
+                                        font.pixelSize: 10
+                                        font.letterSpacing: 1
+                                        font.bold: true
+                                        color: jumpMa.containsMouse ? root.colorBg : root.colorAccent
+                                    }
+
+                                    MouseArea {
+                                        id: jumpMa
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            root.autoScroll = true
+                                            terminalView.positionViewAtEnd()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
                         // Scanline overlay on terminal
                         Canvas {
                             anchors.fill: parent
