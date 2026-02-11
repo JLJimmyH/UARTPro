@@ -98,6 +98,7 @@ Window {
         colorDestructive = t.destructive
         bgGridCanvas.requestPaint()
         scanlineCanvas.requestPaint()
+        keywordRevision++
     }
 
     // ── App State ──────────────────────────────────────────────────
@@ -108,6 +109,8 @@ Window {
     property int terminalFontSize: 12
     property real uiScale: 1.0
     property bool showLineNumbers: false
+    property bool colorNumbers: true
+    onColorNumbersChanged: keywordRevision++
     property string lastClickedRowText: ""
 
     // ── Terminal & Keyword State ─────────────────────────────────
@@ -906,6 +909,13 @@ Window {
                             accentColor: root.colorAccentTertiary
                             bgColor: root.colorBg; borderMutedColor: root.colorBorder; mutedFgColor: root.colorMutedFg
                             onCheckedChanged: root.showLineNumbers = checked
+                        }
+                        CyberCheckBox {
+                            text: "NUM COLORS"
+                            checked: root.colorNumbers
+                            accentColor: root.colorAccentTertiary
+                            bgColor: root.colorBg; borderMutedColor: root.colorBorder; mutedFgColor: root.colorMutedFg
+                            onCheckedChanged: root.colorNumbers = checked
                         }
 
                         Item { height: 8 }
@@ -2143,16 +2153,23 @@ Window {
     }
 
     function highlightText(raw) {
-        if (keywordModel.count === 0)
-            return escapeHtml(raw)
-
         var html = escapeHtml(raw)
 
+        // Step 1: Keyword highlighting
         for (var i = 0; i < keywordModel.count; i++) {
             var kw = keywordModel.get(i)
             var escaped = escapeRegex(escapeHtml(kw.text))
             var re = new RegExp("(" + escaped + ")", "gi")
             html = html.replace(re, "<span style='background-color:" + kw.color + ";color:" + root.colorBg + ";font-weight:bold;'>$1</span>")
+        }
+
+        // Step 2: Color numbers outside HTML tags (won't touch tag attributes)
+        if (root.colorNumbers) {
+            var numColor = String(root.colorAccentTertiary)
+            html = html.replace(/(<[^>]+>)|(\b(?:0x[0-9a-fA-F]+|\d+\.?\d*)\b)/g, function(match, tag, num) {
+                if (tag) return tag
+                return "<span style='color:" + numColor + ";'>" + num + "</span>"
+            })
         }
 
         return html
