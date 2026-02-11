@@ -794,8 +794,8 @@ Window {
                                         hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
                                         onClicked: {
-                                            keywordModel.remove(index)
                                             root.keywordRevision++
+                                            keywordModel.remove(index)
                                         }
                                     }
                                 }
