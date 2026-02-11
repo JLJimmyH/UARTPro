@@ -36,7 +36,7 @@ Window {
     function closeWindow()    { root.close() }
 
     // ── Theme System ────────────────────────────────────────────────
-    property int currentTheme: 0
+    property int currentTheme: 4
     readonly property var themes: [
         {
             name: "CYBER",
@@ -116,6 +116,14 @@ Window {
     readonly property var kwPalette: ["#ff3366", "#ffaa00", "#00ff88", "#00d4ff",
                                       "#ff00ff", "#ffff00", "#ff6600", "#aa66ff"]
 
+    // ── Search State ──────────────────────────────────────────────
+    property bool searchBarVisible: false
+    property string searchQuery: ""
+    property bool searchRegex: false
+    property int searchCurrentIndex: -1
+    property var searchMatches: []
+    property bool autoScrollBeforeSearch: true
+
     // ── Baud / DataBits / StopBits / Parity models ────────────────
     readonly property var baudRates:  [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600]
     readonly property var dataBitsList: [8, 7, 6, 5]
@@ -141,6 +149,31 @@ Window {
         sequence: "Ctrl+C"
         context: Qt.ApplicationShortcut
         onActivated: copySelectedEntries()
+    }
+    Shortcut {
+        sequence: "Ctrl+F"
+        context: Qt.ApplicationShortcut
+        onActivated: {
+            if (!root.searchBarVisible) {
+                root.autoScrollBeforeSearch = root.autoScroll
+                root.autoScroll = false
+            }
+            root.searchBarVisible = true
+            searchInput.forceActiveFocus()
+        }
+    }
+    Shortcut {
+        sequence: "Escape"
+        context: Qt.ApplicationShortcut
+        onActivated: {
+            if (root.searchBarVisible) {
+                root.searchBarVisible = false
+                root.searchQuery = ""
+                root.searchMatches = []
+                root.searchCurrentIndex = -1
+                root.autoScroll = root.autoScrollBeforeSearch
+            }
+        }
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -1143,6 +1176,208 @@ Window {
 
                     Rectangle { Layout.fillWidth: true; height: 1; color: root.colorBorder }
 
+                    // ── Search Bar ──────────────────────────────
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: root.searchBarVisible ? 36 : 0
+                        clip: true
+                        color: root.colorCard
+                        visible: Layout.preferredHeight > 0
+                        Behavior on Layout.preferredHeight { NumberAnimation { duration: 150 } }
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.leftMargin: 12
+                            anchors.rightMargin: 12
+                            spacing: 6
+
+                            // Search icon
+                            Text {
+                                text: "\uD83D\uDD0D"
+                                font.pixelSize: 13
+                                color: root.colorMutedFg
+                                Layout.alignment: Qt.AlignVCenter
+                            }
+
+                            // Search input
+                            TextField {
+                                id: searchInput
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: 28
+                                font.family: root.fontMono
+                                font.pixelSize: 12
+                                color: root.colorAccent
+                                placeholderText: "Search..."
+                                placeholderTextColor: root.colorMutedFg
+                                selectionColor: root.colorAccent
+                                selectedTextColor: root.colorBg
+                                leftPadding: 6
+                                rightPadding: 6
+
+                                background: Rectangle {
+                                    color: root.colorBg
+                                    border.color: searchInput.activeFocus ? root.colorAccent : root.colorBorder
+                                    border.width: 1
+                                }
+
+                                onTextChanged: {
+                                    root.searchQuery = text
+                                    searchDebounce.restart()
+                                }
+
+                                Keys.onReturnPressed: function(event) {
+                                    if (event.modifiers & Qt.ShiftModifier)
+                                        jumpToMatch(-1)
+                                    else
+                                        jumpToMatch(1)
+                                }
+                                Keys.onEnterPressed: function(event) {
+                                    if (event.modifiers & Qt.ShiftModifier)
+                                        jumpToMatch(-1)
+                                    else
+                                        jumpToMatch(1)
+                                }
+                            }
+
+                            // Regex toggle
+                            Rectangle {
+                                Layout.preferredWidth: 28
+                                Layout.preferredHeight: 24
+                                color: root.searchRegex ? Qt.rgba(root.colorAccent.r, root.colorAccent.g, root.colorAccent.b, 0.15) : "transparent"
+                                border.color: root.searchRegex ? root.colorAccent : root.colorBorder
+                                border.width: 1
+                                Layout.alignment: Qt.AlignVCenter
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: ".*"
+                                    font.family: root.fontMono
+                                    font.pixelSize: 11
+                                    font.bold: root.searchRegex
+                                    color: root.searchRegex ? root.colorAccent : root.colorMutedFg
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        root.searchRegex = !root.searchRegex
+                                        if (root.searchQuery !== "")
+                                            performSearch()
+                                    }
+                                }
+                            }
+
+                            // Previous match
+                            Rectangle {
+                                Layout.preferredWidth: 24
+                                Layout.preferredHeight: 24
+                                color: prevMa.containsMouse ? Qt.rgba(root.colorAccent.r, root.colorAccent.g, root.colorAccent.b, 0.15) : "transparent"
+                                border.color: root.colorBorder
+                                border.width: 1
+                                Layout.alignment: Qt.AlignVCenter
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "\u25B2"
+                                    font.family: root.fontMono
+                                    font.pixelSize: 9
+                                    color: root.searchMatches.length > 0 ? root.colorAccent : root.colorMutedFg
+                                }
+
+                                MouseArea {
+                                    id: prevMa
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: jumpToMatch(-1)
+                                }
+                            }
+
+                            // Next match
+                            Rectangle {
+                                Layout.preferredWidth: 24
+                                Layout.preferredHeight: 24
+                                color: nextMa.containsMouse ? Qt.rgba(root.colorAccent.r, root.colorAccent.g, root.colorAccent.b, 0.15) : "transparent"
+                                border.color: root.colorBorder
+                                border.width: 1
+                                Layout.alignment: Qt.AlignVCenter
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "\u25BC"
+                                    font.family: root.fontMono
+                                    font.pixelSize: 9
+                                    color: root.searchMatches.length > 0 ? root.colorAccent : root.colorMutedFg
+                                }
+
+                                MouseArea {
+                                    id: nextMa
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: jumpToMatch(1)
+                                }
+                            }
+
+                            // Match count
+                            Text {
+                                text: root.searchMatches.length > 0
+                                    ? ((root.searchCurrentIndex + 1) + "/" + root.searchMatches.length)
+                                    : (root.searchQuery !== "" ? "0/0" : "")
+                                font.family: root.fontMono
+                                font.pixelSize: 10
+                                font.letterSpacing: 1
+                                color: root.searchMatches.length > 0 ? root.colorAccent : root.colorMutedFg
+                                Layout.alignment: Qt.AlignVCenter
+                                Layout.preferredWidth: 50
+                                horizontalAlignment: Text.AlignHCenter
+                            }
+
+                            // Close button
+                            Rectangle {
+                                Layout.preferredWidth: 24
+                                Layout.preferredHeight: 24
+                                color: closeMa.containsMouse ? Qt.rgba(root.colorDestructive.r, root.colorDestructive.g, root.colorDestructive.b, 0.15) : "transparent"
+                                border.color: root.colorBorder
+                                border.width: 1
+                                Layout.alignment: Qt.AlignVCenter
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "\u2715"
+                                    font.family: root.fontMono
+                                    font.pixelSize: 11
+                                    color: closeMa.containsMouse ? root.colorDestructive : root.colorMutedFg
+                                }
+
+                                MouseArea {
+                                    id: closeMa
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        root.searchBarVisible = false
+                                        root.searchQuery = ""
+                                        searchInput.text = ""
+                                        root.searchMatches = []
+                                        root.searchCurrentIndex = -1
+                                        root.autoScroll = root.autoScrollBeforeSearch
+                                    }
+                                }
+                            }
+                        }
+
+                        // Search debounce timer
+                        Timer {
+                            id: searchDebounce
+                            interval: 150
+                            onTriggered: performSearch()
+                        }
+                    }
+
+                    Rectangle { Layout.fillWidth: true; height: root.searchBarVisible ? 1 : 0; color: root.colorBorder }
+
                     // Terminal output area
                     Item {
                         Layout.fillWidth: true
@@ -1211,12 +1446,35 @@ Window {
                                     return root.selectedSet.hasOwnProperty(entryIndex)
                                 }
 
+                                property int searchMatchType: {
+                                    // 0 = no match, 1 = other match, 2 = current match
+                                    if (!root.searchBarVisible || root.searchMatches.length === 0)
+                                        return 0
+                                    var idx = entryDelegate.index
+                                    if (root.searchCurrentIndex >= 0 && root.searchMatches[root.searchCurrentIndex] === idx)
+                                        return 2
+                                    for (var i = 0; i < root.searchMatches.length; i++) {
+                                        if (root.searchMatches[i] === idx) return 1
+                                    }
+                                    return 0
+                                }
+
                                 // Selection highlight background
                                 Rectangle {
                                     anchors.fill: parent
                                     color: entryDelegate.isSelected
                                         ? Qt.rgba(root.colorAccent.r, root.colorAccent.g, root.colorAccent.b, 0.15)
                                         : "transparent"
+                                }
+
+                                // Search match highlight background
+                                Rectangle {
+                                    anchors.fill: parent
+                                    color: entryDelegate.searchMatchType === 2
+                                        ? Qt.rgba(1, 0.667, 0, 0.35)   // current match: rgba(255,170,0,0.35)
+                                        : entryDelegate.searchMatchType === 1
+                                            ? Qt.rgba(1, 0.667, 0, 0.12)  // other matches: rgba(255,170,0,0.12)
+                                            : "transparent"
                                 }
 
                                 Row {
@@ -1702,6 +1960,56 @@ Window {
             terminalView.positionViewAtEnd()
     }
 
+    // ── Search ────────────────────────────────────────────────
+    function performSearch() {
+        var q = root.searchQuery
+        if (q === "") {
+            root.searchMatches = []
+            root.searchCurrentIndex = -1
+            return
+        }
+
+        var matches = []
+        var re
+        try {
+            if (root.searchRegex)
+                re = new RegExp(q, "i")
+            else
+                re = new RegExp(escapeRegex(q), "i")
+        } catch (e) {
+            root.searchMatches = []
+            root.searchCurrentIndex = -1
+            return
+        }
+
+        for (var i = 0; i < terminalModel.count; i++) {
+            var entry = terminalModel.get(i)
+            var text = (root.hexDisplayMode && entry.hexData !== "") ? entry.hexData : entry.msgText
+            if (re.test(String(text))) {
+                matches.push(i)
+            }
+        }
+
+        root.searchMatches = matches
+        if (matches.length > 0) {
+            root.searchCurrentIndex = 0
+            terminalView.positionViewAtIndex(matches[0], ListView.Center)
+        } else {
+            root.searchCurrentIndex = -1
+        }
+    }
+
+    function jumpToMatch(direction) {
+        if (root.searchMatches.length === 0) return
+
+        var idx = root.searchCurrentIndex + direction
+        if (idx >= root.searchMatches.length) idx = 0
+        if (idx < 0) idx = root.searchMatches.length - 1
+
+        root.searchCurrentIndex = idx
+        terminalView.positionViewAtIndex(root.searchMatches[idx], ListView.Center)
+    }
+
     // ── Keyword Highlighting ────────────────────────────────────
     function escapeHtml(str) {
         return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -1889,6 +2197,7 @@ Window {
 
     // Boot sequence on startup
     Component.onCompleted: {
+        applyTheme(currentTheme)
         var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
         addTerminalEntry(ts, "UART PRO v0.1 // SERIAL TERMINAL INTERFACE", "", "system")
         addTerminalEntry(ts, "System initialized. Ready for connection.", "", "system")
