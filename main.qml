@@ -2,7 +2,6 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Dialogs
-import Qt.labs.settings 1.0
 
 Window {
     id: root
@@ -118,7 +117,6 @@ Window {
     readonly property var bufferSizeOptions: [10000, 50000, 100000, 500000]
     property string lastClickedRowText: ""
     property string exportMode: "filtered"
-    property bool settingsLoaded: false
     property bool leftPanelCollapsed: false
 
     // ── Terminal & Keyword State ─────────────────────────────────
@@ -834,7 +832,6 @@ Window {
                             cardColor: root.colorCard; borderColor: root.colorBorder
                             fgColor: root.colorFg; bgColor: root.colorBg
                             mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
-                            onCurrentIndexChanged: if (root.settingsLoaded) connectionSettings.lastBaudIndex = currentIndex
                         }
 
                         // Hidden combos — keep IDs for compatibility
@@ -1405,7 +1402,6 @@ Window {
                                                     onClicked: {
                                                         root.keywordRevision++
                                                         keywordModel.remove(index)
-                                                        settingsSaveTimer.restart()
                                                     }
                                                 }
                                             }
@@ -1449,7 +1445,6 @@ Window {
                                                     onClicked: {
                                                         whitelistModel.remove(index)
                                                         root.rebuildFilteredModel()
-                                                        settingsSaveTimer.restart()
                                                     }
                                                 }
                                             }
@@ -1493,7 +1488,6 @@ Window {
                                                     onClicked: {
                                                         blacklistModel.remove(index)
                                                         root.rebuildFilteredModel()
-                                                        settingsSaveTimer.restart()
                                                     }
                                                 }
                                             }
@@ -1867,7 +1861,6 @@ Window {
                                 fgColor: root.colorFg; bgColor: root.colorBg
                                 mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
                                 font.pixelSize: 10
-                                onCurrentIndexChanged: if (root.settingsLoaded) connectionSettings.lastLineEndingIndex = currentIndex
                             }
 
                             // Transmit button
@@ -2503,7 +2496,6 @@ Window {
         root.kwColorIndex++
         keywordModel.append({ text: text, color: color })
         root.keywordRevision++
-        settingsSaveTimer.restart()
     }
 
     function addWhitelist(text) {
@@ -2511,7 +2503,6 @@ Window {
         if (text === "") return
         whitelistModel.append({ text: text })
         rebuildFilteredModel()
-        settingsSaveTimer.restart()
     }
 
     function addBlacklist(text) {
@@ -2519,7 +2510,6 @@ Window {
         if (text === "") return
         blacklistModel.append({ text: text })
         rebuildFilteredModel()
-        settingsSaveTimer.restart()
     }
 
     // ── Utilities ───────────────────────────────────────────────
@@ -2572,98 +2562,9 @@ Window {
              + String(s).padStart(2, '0')
     }
 
-    // ══════════════════════════════════════════════════════════════
-    // SETTINGS PERSISTENCE (CH-14)
-    // ══════════════════════════════════════════════════════════════
-    Settings {
-        id: generalSettings
-        category: "General"
-        property alias theme: root.currentTheme
-        property alias fontSize: root.terminalFontSize
-        property alias showTimestamp: root.showTimestamp
-        property alias hexDisplayMode: root.hexDisplayMode
-        property alias showLineNumbers: root.showLineNumbers
-        property alias colorNumbers: root.colorNumbers
-        property alias uiScale: root.uiScale
-        property alias hexSendMode: root.hexSendMode
-        property alias maxBufferLines: root.maxBufferLines
-        property alias leftPanelCollapsed: root.leftPanelCollapsed
-    }
-
-    Settings {
-        id: filterSettings
-        category: "Filters"
-        property string keywordsJson: "[]"
-        property string whitelistJson: "[]"
-        property string blacklistJson: "[]"
-    }
-
-    Settings {
-        id: connectionSettings
-        category: "Connection"
-        property int lastBaudIndex: 4
-        property int lastDataBitsIndex: 0
-        property int lastStopBitsIndex: 0
-        property int lastParityIndex: 0
-        property int lastLineEndingIndex: 0
-    }
-
-    function serializeListModel(model) {
-        var arr = []
-        for (var i = 0; i < model.count; i++) {
-            var item = model.get(i)
-            arr.push({ text: item.text, color: item.color || "" })
-        }
-        return JSON.stringify(arr)
-    }
-
-    function deserializeToListModel(model, jsonStr) {
-        model.clear()
-        try {
-            var arr = JSON.parse(jsonStr)
-            for (var i = 0; i < arr.length; i++)
-                model.append(arr[i])
-        } catch(e) { /* ignore bad JSON */ }
-    }
-
-    Timer {
-        id: settingsSaveTimer
-        interval: 500
-        onTriggered: {
-            if (!root.settingsLoaded) return
-            filterSettings.keywordsJson = serializeListModel(keywordModel)
-            filterSettings.whitelistJson = serializeListModel(whitelistModel)
-            filterSettings.blacklistJson = serializeListModel(blacklistModel)
-        }
-    }
-
     // Boot sequence on startup
     Component.onCompleted: {
-        // Restore connection combo indices
-        baudCombo.currentIndex = connectionSettings.lastBaudIndex
-        dataBitsCombo.currentIndex = connectionSettings.lastDataBitsIndex
-        stopBitsCombo.currentIndex = connectionSettings.lastStopBitsIndex
-        parityCombo.currentIndex = connectionSettings.lastParityIndex
-        lineEndingCombo.currentIndex = connectionSettings.lastLineEndingIndex
-
-        // Restore buffer size combo
-        var bufIdx = root.bufferSizeOptions.indexOf(root.maxBufferLines)
-        if (bufIdx >= 0) bufferSizeCombo.currentIndex = bufIdx
-
-        // Apply saved theme
-        applyTheme(root.currentTheme)
-
-        // Restore filter models
-        deserializeToListModel(keywordModel, filterSettings.keywordsJson)
-        deserializeToListModel(whitelistModel, filterSettings.whitelistJson)
-        deserializeToListModel(blacklistModel, filterSettings.blacklistJson)
-
-        // Rebuild filtered view if filters are active
-        if (whitelistModel.count > 0 || blacklistModel.count > 0)
-            rebuildFilteredModel()
-
-        root.settingsLoaded = true
-
+        applyTheme(currentTheme)
         var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
         addTerminalEntry(ts, "UART PRO v0.1 // SERIAL TERMINAL INTERFACE", "", "system")
         addTerminalEntry(ts, "System initialized. Ready for connection.", "", "system")
