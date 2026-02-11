@@ -704,13 +704,17 @@ Window {
                         // Connect / Disconnect button
                         CyberButton {
                             Layout.fillWidth: true
-                            text: serialManager.connected ? "DISCONNECT" : "CONNECT"
-                            accentColor: serialManager.connected ? root.colorDestructive : root.colorAccent
+                            text: serialManager.reconnecting ? "RECONNECTING..."
+                                : serialManager.connected ? "DISCONNECT" : "CONNECT"
+                            accentColor: serialManager.reconnecting ? "#ffaa00"
+                                : serialManager.connected ? root.colorDestructive : root.colorAccent
                             bgColor: root.colorBg; borderMutedColor: root.colorBorder
-                            glowing: serialManager.connected
-                            enabled: !serialManager.connected || serialManager.connected
+                            glowing: serialManager.connected || serialManager.reconnecting
                             onClicked: {
-                                if (serialManager.connected) {
+                                if (serialManager.reconnecting) {
+                                    // Clicking during reconnect = cancel reconnect
+                                    serialManager.disconnectPort()
+                                } else if (serialManager.connected) {
                                     serialManager.disconnectPort()
                                 } else {
                                     if (portCombo.currentIndex < 0) {
@@ -1080,6 +1084,23 @@ Window {
 
                             Item { Layout.fillWidth: true }
 
+                            // Reconnecting indicator
+                            Text {
+                                visible: serialManager.reconnecting
+                                text: "[RECONNECTING]"
+                                font.family: root.fontMono
+                                font.pixelSize: 10
+                                font.letterSpacing: 1
+                                font.bold: true
+                                color: "#ffaa00"
+                                SequentialAnimation on opacity {
+                                    running: serialManager.reconnecting
+                                    loops: Animation.Infinite
+                                    NumberAnimation { to: 0.3; duration: 600 }
+                                    NumberAnimation { to: 1.0; duration: 600 }
+                                }
+                            }
+
                             // Filter indicator
                             Text {
                                 visible: whitelistModel.count > 0 || blacklistModel.count > 0
@@ -1136,6 +1157,18 @@ Window {
                             model: terminalModel
                             clip: true
                             boundsBehavior: Flickable.StopAtBounds
+
+                            // Auto-scroll detection: disable when user scrolls up, re-enable at bottom
+                            property bool atBottom: true
+                            onContentYChanged: {
+                                if (!moving) return
+                                var bottom = (contentHeight - contentY - height) < 30
+                                if (bottom && !root.autoScroll) {
+                                    root.autoScroll = true
+                                } else if (!bottom && root.autoScroll) {
+                                    root.autoScroll = false
+                                }
+                            }
 
                             ScrollBar.vertical: ScrollBar {
                                 policy: ScrollBar.AsNeeded
@@ -1515,9 +1548,19 @@ Window {
                 addTerminalEntry(ts, "Connection established — "
                     + portCombo.currentText.split(" - ")[0] + " @ "
                     + baudCombo.currentText + " bps", "", "system")
-            } else {
+            } else if (!serialManager.reconnecting) {
                 addTerminalEntry(ts, "Connection closed", "", "system")
             }
+        }
+
+        function onConnectionLost() {
+            var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+            addTerminalEntry(ts, "Device disconnected — auto-reconnecting...", "", "error")
+        }
+
+        function onReconnected() {
+            var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+            addTerminalEntry(ts, "Reconnected successfully", "", "system")
         }
 
         function onDataReceived(timestamp, asciiData, hexData) {
@@ -1526,7 +1569,8 @@ Window {
 
         function onErrorOccurred(error) {
             var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
-            addTerminalEntry(ts, error, "", "error")
+            if (!serialManager.reconnecting)
+                addTerminalEntry(ts, error, "", "error")
         }
     }
 

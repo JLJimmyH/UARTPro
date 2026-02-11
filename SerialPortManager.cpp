@@ -5,16 +5,28 @@ SerialPortManager::SerialPortManager(QObject *parent)
     , m_serialPort(new QSerialPort(this))
     , m_rxBytes(0)
     , m_txBytes(0)
+    , m_reconnectTimer(new QTimer(this))
+    , m_reconnecting(false)
+    , m_lastBaudRate(115200)
+    , m_lastDataBits(8)
+    , m_lastStopBits(1)
+    , m_lastParity(0)
 {
     connect(m_serialPort, &QSerialPort::readyRead,
             this, &SerialPortManager::handleReadyRead);
     connect(m_serialPort, &QSerialPort::errorOccurred,
             this, &SerialPortManager::handleError);
+
+    m_reconnectTimer->setInterval(1500);
+    connect(m_reconnectTimer, &QTimer::timeout,
+            this, &SerialPortManager::tryReconnect);
+
     refreshPorts();
 }
 
 SerialPortManager::~SerialPortManager()
 {
+    m_reconnectTimer->stop();
     if (m_serialPort->isOpen())
         m_serialPort->close();
 }
@@ -29,6 +41,11 @@ bool SerialPortManager::isConnected() const
     return m_serialPort->isOpen();
 }
 
+bool SerialPortManager::isReconnecting() const
+{
+    return m_reconnecting;
+}
+
 qint64 SerialPortManager::rxBytes() const { return m_rxBytes; }
 qint64 SerialPortManager::txBytes() const { return m_txBytes; }
 
@@ -41,33 +58,51 @@ void SerialPortManager::refreshPorts()
     emit availablePortsChanged();
 }
 
-bool SerialPortManager::connectToPort(const QString &portName, int baudRate,
-                                      int dataBits, int stopBits, int parity)
+void SerialPortManager::applyPortSettings()
 {
-    if (m_serialPort->isOpen())
-        m_serialPort->close();
+    m_serialPort->setPortName(m_lastPortName);
+    m_serialPort->setBaudRate(m_lastBaudRate);
 
-    QString name = portName.split(QStringLiteral(" - ")).first().trimmed();
-    m_serialPort->setPortName(name);
-    m_serialPort->setBaudRate(baudRate);
-
-    switch (dataBits) {
+    switch (m_lastDataBits) {
     case 5: m_serialPort->setDataBits(QSerialPort::Data5); break;
     case 6: m_serialPort->setDataBits(QSerialPort::Data6); break;
     case 7: m_serialPort->setDataBits(QSerialPort::Data7); break;
     default: m_serialPort->setDataBits(QSerialPort::Data8); break;
     }
 
-    switch (stopBits) {
+    switch (m_lastStopBits) {
     case 2:  m_serialPort->setStopBits(QSerialPort::TwoStop); break;
     default: m_serialPort->setStopBits(QSerialPort::OneStop); break;
     }
 
-    switch (parity) {
+    switch (m_lastParity) {
     case 1:  m_serialPort->setParity(QSerialPort::EvenParity); break;
     case 2:  m_serialPort->setParity(QSerialPort::OddParity); break;
     default: m_serialPort->setParity(QSerialPort::NoParity); break;
     }
+}
+
+bool SerialPortManager::connectToPort(const QString &portName, int baudRate,
+                                      int dataBits, int stopBits, int parity)
+{
+    // Stop any ongoing reconnect attempts
+    if (m_reconnecting) {
+        m_reconnectTimer->stop();
+        m_reconnecting = false;
+        emit reconnectingChanged();
+    }
+
+    if (m_serialPort->isOpen())
+        m_serialPort->close();
+
+    // Save connection parameters for auto-reconnect
+    m_lastPortName = portName.split(QStringLiteral(" - ")).first().trimmed();
+    m_lastBaudRate = baudRate;
+    m_lastDataBits = dataBits;
+    m_lastStopBits = stopBits;
+    m_lastParity = parity;
+
+    applyPortSettings();
 
     if (m_serialPort->open(QIODevice::ReadWrite)) {
         m_rxBuffer.clear();
@@ -85,6 +120,13 @@ bool SerialPortManager::connectToPort(const QString &portName, int baudRate,
 
 void SerialPortManager::disconnectPort()
 {
+    // Manual disconnect: stop auto-reconnect
+    if (m_reconnecting) {
+        m_reconnectTimer->stop();
+        m_reconnecting = false;
+        emit reconnectingChanged();
+    }
+
     if (m_serialPort->isOpen()) {
         // Flush any remaining buffered data before closing
         if (!m_rxBuffer.isEmpty()) {
@@ -116,6 +158,33 @@ bool SerialPortManager::sendData(const QString &data, bool hexMode)
         return true;
     }
     return false;
+}
+
+void SerialPortManager::tryReconnect()
+{
+    // Check if port is available in system
+    bool portExists = false;
+    const auto ports = QSerialPortInfo::availablePorts();
+    for (const auto &port : ports) {
+        if (port.portName() == m_lastPortName) {
+            portExists = true;
+            break;
+        }
+    }
+
+    if (!portExists)
+        return;   // device not back yet, wait for next tick
+
+    applyPortSettings();
+
+    if (m_serialPort->open(QIODevice::ReadWrite)) {
+        m_reconnectTimer->stop();
+        m_reconnecting = false;
+        emit reconnectingChanged();
+        emit connectedChanged();
+        emit reconnected();
+    }
+    // else: port appeared but open failed, keep trying
 }
 
 void SerialPortManager::handleReadyRead()
@@ -199,5 +268,13 @@ void SerialPortManager::handleError(QSerialPort::SerialPortError error)
     if (error == QSerialPort::ResourceError) {
         m_serialPort->close();
         emit connectedChanged();
+
+        // Start auto-reconnect if we had a valid connection before
+        if (!m_lastPortName.isEmpty() && !m_reconnecting) {
+            m_reconnecting = true;
+            emit reconnectingChanged();
+            emit connectionLost();
+            m_reconnectTimer->start();
+        }
     }
 }
