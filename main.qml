@@ -65,6 +65,7 @@ Window {
     // BACKGROUND — circuit grid pattern
     // ══════════════════════════════════════════════════════════════
     Canvas {
+        id: bgGridCanvas
         anchors.fill: parent
         z: 0
         onPaint: {
@@ -83,8 +84,8 @@ Window {
         Component.onCompleted: requestPaint()
         Connections {
             target: root
-            function onWidthChanged()  { parent.requestPaint() }
-            function onHeightChanged() { parent.requestPaint() }
+            function onWidthChanged()  { bgGridCanvas.requestPaint() }
+            function onHeightChanged() { bgGridCanvas.requestPaint() }
         }
     }
 
@@ -903,6 +904,7 @@ Window {
     // SCANLINE OVERLAY (full window)
     // ══════════════════════════════════════════════════════════════
     Canvas {
+        id: scanlineCanvas
         anchors.fill: parent
         z: 100
         opacity: 0.03
@@ -916,8 +918,8 @@ Window {
         Component.onCompleted: requestPaint()
         Connections {
             target: root
-            function onWidthChanged()  { parent.requestPaint() }
-            function onHeightChanged() { parent.requestPaint() }
+            function onWidthChanged()  { scanlineCanvas.requestPaint() }
+            function onHeightChanged() { scanlineCanvas.requestPaint() }
         }
     }
 
