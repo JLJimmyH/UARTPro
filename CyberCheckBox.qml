@@ -5,6 +5,9 @@ CheckBox {
     id: control
 
     property color accentColor: "#00ff88"
+    property color bgColor: "#0a0a0f"
+    property color borderMutedColor: "#3a3a4a"
+    property color mutedFgColor: "#6b7280"
 
     font.family: "Consolas"
     font.pixelSize: 11
@@ -17,15 +20,15 @@ CheckBox {
         x: control.leftPadding
         y: parent.height / 2 - height / 2
         color: control.checked ? control.accentColor : "transparent"
-        border.color: control.checked ? control.accentColor : "#3a3a4a"
+        border.color: control.checked ? control.accentColor : control.borderMutedColor
         border.width: 1
 
         Text {
             anchors.centerIn: parent
-            text: "✓"
+            text: "\u2713"
             font.pixelSize: 12
             font.bold: true
-            color: "#0a0a0f"
+            color: control.bgColor
             visible: control.checked
         }
 
@@ -43,7 +46,7 @@ CheckBox {
     contentItem: Text {
         text: control.text
         font: control.font
-        color: control.checked ? control.accentColor : "#6b7280"
+        color: control.checked ? control.accentColor : control.mutedFgColor
         verticalAlignment: Text.AlignVCenter
         leftPadding: control.indicator.width + control.spacing
     }

@@ -5,14 +5,20 @@ ComboBox {
     id: control
 
     property color accentColor: "#00ff88"
+    property color cardColor: "#12121a"
+    property color borderColor: "#2a2a3a"
+    property color fgColor: "#e0e0e0"
+    property color bgColor: "#0a0a0f"
+    property color mutedFgColor: "#6b7280"
+    property color mutedColor: "#1c1c2e"
 
     font.family: "Consolas"
     font.pixelSize: 12
 
     background: Rectangle {
         implicitHeight: 36
-        color: "#12121a"
-        border.color: control.activeFocus || control.popup.visible ? control.accentColor : "#2a2a3a"
+        color: control.cardColor
+        border.color: control.activeFocus || control.popup.visible ? control.accentColor : control.borderColor
         border.width: 1
         Behavior on border.color { ColorAnimation { duration: 150 } }
     }
@@ -39,16 +45,16 @@ ComboBox {
             anchors.verticalCenter: parent.verticalCenter
             text: control.displayText || "SELECT..."
             font: control.font
-            color: control.displayText ? control.accentColor : "#6b7280"
+            color: control.displayText ? control.accentColor : control.mutedFgColor
             elide: Text.ElideRight
         }
     }
 
     indicator: Text {
-        text: control.popup.visible ? "▲" : "▼"
+        text: control.popup.visible ? "\u25B2" : "\u25BC"
         font.family: "Consolas"
         font.pixelSize: 8
-        color: "#6b7280"
+        color: control.mutedFgColor
         anchors.right: parent.right
         anchors.rightMargin: 10
         anchors.verticalCenter: parent.verticalCenter
@@ -63,13 +69,13 @@ ComboBox {
             text: modelData !== undefined ? modelData : model[control.textRole]
             font.family: "Consolas"
             font.pixelSize: 12
-            color: parent.highlighted ? "#0a0a0f" : "#e0e0e0"
+            color: parent.highlighted ? control.bgColor : control.fgColor
             verticalAlignment: Text.AlignVCenter
             leftPadding: 10
             elide: Text.ElideRight
         }
         background: Rectangle {
-            color: parent.highlighted ? control.accentColor : (parent.hovered ? "#1c1c2e" : "transparent")
+            color: parent.highlighted ? control.accentColor : (parent.hovered ? control.mutedColor : "transparent")
         }
     }
 
@@ -85,7 +91,7 @@ ComboBox {
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
         }
         background: Rectangle {
-            color: "#12121a"
+            color: control.cardColor
             border.color: control.accentColor
             border.width: 1
         }

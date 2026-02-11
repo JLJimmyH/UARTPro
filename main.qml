@@ -35,18 +35,52 @@ Window {
     function minimizeWindow() { root.showMinimized() }
     function closeWindow()    { root.close() }
 
+    // ── Theme System ────────────────────────────────────────────────
+    property int currentTheme: 0
+    readonly property var themes: [
+        {
+            name: "CYBER",
+            bg: "#0a0a0f", fg: "#e0e0e0", card: "#12121a", muted: "#1c1c2e",
+            mutedFg: "#6b7280", accent: "#00ff88", accentSecondary: "#ff00ff",
+            accentTertiary: "#00d4ff", border: "#2a2a3a", destructive: "#ff3366"
+        },
+        {
+            name: "AMBER",
+            bg: "#0a0800", fg: "#ffb000", card: "#12100a", muted: "#1c1a10",
+            mutedFg: "#7a6b40", accent: "#ffb000", accentSecondary: "#ff6600",
+            accentTertiary: "#ffdd00", border: "#2a2818", destructive: "#ff3300"
+        }
+    ]
+
     // ── Design Tokens ──────────────────────────────────────────────
-    readonly property color colorBg:              "#0a0a0f"
-    readonly property color colorFg:              "#e0e0e0"
-    readonly property color colorCard:            "#12121a"
-    readonly property color colorMuted:           "#1c1c2e"
-    readonly property color colorMutedFg:         "#6b7280"
-    readonly property color colorAccent:          "#00ff88"
-    readonly property color colorAccentSecondary: "#ff00ff"
-    readonly property color colorAccentTertiary:  "#00d4ff"
-    readonly property color colorBorder:          "#2a2a3a"
-    readonly property color colorDestructive:     "#ff3366"
-    readonly property string fontMono:            "Consolas"
+    property color colorBg:              "#0a0a0f"
+    property color colorFg:              "#e0e0e0"
+    property color colorCard:            "#12121a"
+    property color colorMuted:           "#1c1c2e"
+    property color colorMutedFg:         "#6b7280"
+    property color colorAccent:          "#00ff88"
+    property color colorAccentSecondary: "#ff00ff"
+    property color colorAccentTertiary:  "#00d4ff"
+    property color colorBorder:          "#2a2a3a"
+    property color colorDestructive:     "#ff3366"
+    readonly property string fontMono:   "Consolas"
+
+    function applyTheme(index) {
+        var t = themes[index]
+        currentTheme = index
+        colorBg = t.bg
+        colorFg = t.fg
+        colorCard = t.card
+        colorMuted = t.muted
+        colorMutedFg = t.mutedFg
+        colorAccent = t.accent
+        colorAccentSecondary = t.accentSecondary
+        colorAccentTertiary = t.accentTertiary
+        colorBorder = t.border
+        colorDestructive = t.destructive
+        bgGridCanvas.requestPaint()
+        scanlineCanvas.requestPaint()
+    }
 
     // ── App State ──────────────────────────────────────────────────
     property bool hexDisplayMode: false
@@ -88,7 +122,8 @@ Window {
         onPaint: {
             var ctx = getContext("2d")
             ctx.clearRect(0, 0, width, height)
-            ctx.strokeStyle = "rgba(0, 255, 136, 0.025)"
+            var c = root.colorAccent
+            ctx.strokeStyle = Qt.rgba(c.r, c.g, c.b, 0.025)
             ctx.lineWidth = 1
             var gs = 50
             for (var x = 0; x <= width; x += gs) {
@@ -302,6 +337,36 @@ Window {
                 }
 
                 Item { Layout.fillWidth: true }
+
+                // Theme switcher
+                Rectangle {
+                    width: themeLabel.width + 16
+                    height: 26
+                    color: themeMa.containsMouse ? root.colorMuted : "transparent"
+                    border.color: themeMa.containsMouse ? root.colorAccent : root.colorBorder
+                    border.width: 1
+                    Behavior on border.color { ColorAnimation { duration: 150 } }
+                    Behavior on color { ColorAnimation { duration: 150 } }
+
+                    Text {
+                        id: themeLabel
+                        anchors.centerIn: parent
+                        text: "[" + root.themes[root.currentTheme].name + "]"
+                        font.family: root.fontMono
+                        font.pixelSize: 10
+                        font.letterSpacing: 1
+                        font.bold: true
+                        color: themeMa.containsMouse ? root.colorAccent : root.colorMutedFg
+                        Behavior on color { ColorAnimation { duration: 150 } }
+                    }
+                    MouseArea {
+                        id: themeMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.applyTheme((root.currentTheme + 1) % root.themes.length)
+                    }
+                }
 
                 // Connection status indicator
                 Row {
@@ -520,6 +585,9 @@ Window {
                             Layout.fillWidth: true
                             model: serialManager.availablePorts
                             accentColor: root.colorAccent
+                            cardColor: root.colorCard; borderColor: root.colorBorder
+                            fgColor: root.colorFg; bgColor: root.colorBg
+                            mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
                         }
 
                         // BAUD RATE
@@ -532,8 +600,11 @@ Window {
                             id: baudCombo
                             Layout.fillWidth: true
                             model: root.baudRates
-                            currentIndex: 4  // default 115200
+                            currentIndex: 7  // default 921600
                             accentColor: root.colorAccent
+                            cardColor: root.colorCard; borderColor: root.colorBorder
+                            fgColor: root.colorFg; bgColor: root.colorBg
+                            mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
                         }
 
                         // DATA BITS
@@ -548,6 +619,9 @@ Window {
                             model: root.dataBitsList
                             currentIndex: 0  // default 8
                             accentColor: root.colorAccent
+                            cardColor: root.colorCard; borderColor: root.colorBorder
+                            fgColor: root.colorFg; bgColor: root.colorBg
+                            mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
                         }
 
                         // STOP BITS
@@ -562,6 +636,9 @@ Window {
                             model: root.stopBitsList
                             currentIndex: 0  // default 1
                             accentColor: root.colorAccent
+                            cardColor: root.colorCard; borderColor: root.colorBorder
+                            fgColor: root.colorFg; bgColor: root.colorBg
+                            mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
                         }
 
                         // PARITY
@@ -576,6 +653,9 @@ Window {
                             model: root.parityList
                             currentIndex: 0  // default None
                             accentColor: root.colorAccent
+                            cardColor: root.colorCard; borderColor: root.colorBorder
+                            fgColor: root.colorFg; bgColor: root.colorBg
+                            mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
                         }
 
                         Item { height: 4 }
@@ -585,6 +665,7 @@ Window {
                             Layout.fillWidth: true
                             text: serialManager.connected ? "DISCONNECT" : "CONNECT"
                             accentColor: serialManager.connected ? root.colorDestructive : root.colorAccent
+                            bgColor: root.colorBg; borderMutedColor: root.colorBorder
                             glowing: serialManager.connected
                             enabled: !serialManager.connected || serialManager.connected
                             onClicked: {
@@ -630,18 +711,21 @@ Window {
                             text: "HEX DISPLAY"
                             checked: root.hexDisplayMode
                             accentColor: root.colorAccentTertiary
+                            bgColor: root.colorBg; borderMutedColor: root.colorBorder; mutedFgColor: root.colorMutedFg
                             onCheckedChanged: root.hexDisplayMode = checked
                         }
                         CyberCheckBox {
                             text: "AUTO SCROLL"
                             checked: root.autoScroll
                             accentColor: root.colorAccentTertiary
+                            bgColor: root.colorBg; borderMutedColor: root.colorBorder; mutedFgColor: root.colorMutedFg
                             onCheckedChanged: root.autoScroll = checked
                         }
                         CyberCheckBox {
                             text: "TIMESTAMP"
                             checked: root.showTimestamp
                             accentColor: root.colorAccentTertiary
+                            bgColor: root.colorBg; borderMutedColor: root.colorBorder; mutedFgColor: root.colorMutedFg
                             onCheckedChanged: root.showTimestamp = checked
                         }
 
@@ -667,12 +751,15 @@ Window {
                                 Layout.fillWidth: true
                                 placeholderText: "keyword..."
                                 accentColor: "#ffaa00"
+                                cardColor: root.colorCard; borderColor: root.colorBorder
+                                bgColor: root.colorBg; mutedFgColor: root.colorMutedFg
                                 font.pixelSize: 11
                             }
                             CyberButton {
                                 Layout.preferredWidth: 40
                                 text: "+"
                                 accentColor: "#ffaa00"
+                                bgColor: root.colorBg; borderMutedColor: root.colorBorder
                                 font.pixelSize: 14
                                 onClicked: addKeyword(kwInput.text)
                             }
@@ -737,12 +824,15 @@ Window {
                                 Layout.fillWidth: true
                                 placeholderText: "include..."
                                 accentColor: root.colorAccent
+                                cardColor: root.colorCard; borderColor: root.colorBorder
+                                bgColor: root.colorBg; mutedFgColor: root.colorMutedFg
                                 font.pixelSize: 11
                             }
                             CyberButton {
                                 Layout.preferredWidth: 40
                                 text: "+"
                                 accentColor: root.colorAccent
+                                bgColor: root.colorBg; borderMutedColor: root.colorBorder
                                 font.pixelSize: 14
                                 onClicked: addWhitelist(wlInput.text)
                             }
@@ -808,12 +898,15 @@ Window {
                                 Layout.fillWidth: true
                                 placeholderText: "exclude..."
                                 accentColor: root.colorDestructive
+                                cardColor: root.colorCard; borderColor: root.colorBorder
+                                bgColor: root.colorBg; mutedFgColor: root.colorMutedFg
                                 font.pixelSize: 11
                             }
                             CyberButton {
                                 Layout.preferredWidth: 40
                                 text: "+"
                                 accentColor: root.colorDestructive
+                                bgColor: root.colorBg; borderMutedColor: root.colorBorder
                                 font.pixelSize: 14
                                 onClicked: addBlacklist(blInput.text)
                             }
@@ -875,12 +968,14 @@ Window {
                             Layout.fillWidth: true
                             text: "REFRESH PORTS"
                             accentColor: root.colorAccentTertiary
+                            bgColor: root.colorBg; borderMutedColor: root.colorBorder
                             onClicked: serialManager.refreshPorts()
                         }
                         CyberButton {
                             Layout.fillWidth: true
                             text: "COPY LOG"
                             accentColor: "#ffaa00"
+                            bgColor: root.colorBg; borderMutedColor: root.colorBorder
                             onClicked: {
                                 var keys = Object.keys(root.selectedSet)
                                 root.selectionVersion
@@ -894,6 +989,7 @@ Window {
                             Layout.fillWidth: true
                             text: "CLEAR TERMINAL"
                             accentColor: root.colorAccentSecondary
+                            bgColor: root.colorBg; borderMutedColor: root.colorBorder
                             onClicked: {
                                 terminalModel.clear()
                                 root.terminalEntries = []
@@ -1169,6 +1265,7 @@ Window {
                                 Layout.preferredWidth: 65
                                 text: root.hexSendMode ? "HEX" : "ASCII"
                                 accentColor: root.hexSendMode ? root.colorAccentSecondary : root.colorAccentTertiary
+                                bgColor: root.colorBg; borderMutedColor: root.colorBorder
                                 onClicked: root.hexSendMode = !root.hexSendMode
                                 font.pixelSize: 10
                             }
@@ -1179,6 +1276,8 @@ Window {
                                 Layout.fillWidth: true
                                 placeholderText: root.hexSendMode ? "48 65 6C 6C 6F..." : "Enter data to transmit..."
                                 accentColor: root.colorAccent
+                                cardColor: root.colorCard; borderColor: root.colorBorder
+                                bgColor: root.colorBg; mutedFgColor: root.colorMutedFg
                                 enabled: serialManager.connected
 
                                 Keys.onReturnPressed: sendCurrentData()
@@ -1192,6 +1291,9 @@ Window {
                                 model: root.lineEndings
                                 currentIndex: 0
                                 accentColor: root.colorMutedFg
+                                cardColor: root.colorCard; borderColor: root.colorBorder
+                                fgColor: root.colorFg; bgColor: root.colorBg
+                                mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
                                 font.pixelSize: 10
                             }
 
@@ -1200,6 +1302,7 @@ Window {
                                 Layout.preferredWidth: 110
                                 text: "TRANSMIT"
                                 accentColor: root.colorAccent
+                                bgColor: root.colorBg; borderMutedColor: root.colorBorder
                                 glowing: serialManager.connected
                                 enabled: serialManager.connected
                                 onClicked: sendCurrentData()
@@ -1404,11 +1507,11 @@ Window {
     function addTerminalEntry(timestamp, data, hexData, type) {
         var color
         switch (type) {
-        case "rx":     color = "#00ff88"; break
-        case "tx":     color = "#00d4ff"; break
-        case "system": color = "#ff00ff"; break
-        case "error":  color = "#ff3366"; break
-        default:       color = "#e0e0e0"
+        case "rx":     color = root.colorAccent.toString(); break
+        case "tx":     color = root.colorAccentTertiary.toString(); break
+        case "system": color = root.colorAccentSecondary.toString(); break
+        case "error":  color = root.colorDestructive.toString(); break
+        default:       color = root.colorFg.toString()
         }
 
         var entry = {
@@ -1492,7 +1595,7 @@ Window {
             var kw = keywordModel.get(i)
             var escaped = escapeRegex(escapeHtml(kw.text))
             var re = new RegExp("(" + escaped + ")", "gi")
-            html = html.replace(re, "<span style='background-color:" + kw.color + ";color:#0a0a0f;font-weight:bold;'>$1</span>")
+            html = html.replace(re, "<span style='background-color:" + kw.color + ";color:" + root.colorBg + ";font-weight:bold;'>$1</span>")
         }
 
         return html

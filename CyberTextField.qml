@@ -5,19 +5,23 @@ TextField {
     id: control
 
     property color accentColor: "#00ff88"
+    property color cardColor: "#12121a"
+    property color borderColor: "#2a2a3a"
+    property color bgColor: "#0a0a0f"
+    property color mutedFgColor: "#6b7280"
 
     font.family: "Consolas"
     font.pixelSize: 13
     color: accentColor
     selectionColor: accentColor
-    selectedTextColor: "#0a0a0f"
-    placeholderTextColor: "#6b7280"
+    selectedTextColor: bgColor
+    placeholderTextColor: mutedFgColor
     leftPadding: 28
 
     background: Rectangle {
         implicitHeight: 38
-        color: "#12121a"
-        border.color: control.activeFocus ? control.accentColor : "#2a2a3a"
+        color: control.cardColor
+        border.color: control.activeFocus ? control.accentColor : control.borderColor
         border.width: 1
         Behavior on border.color { ColorAnimation { duration: 150 } }
 

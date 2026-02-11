@@ -5,6 +5,8 @@ Button {
     id: control
 
     property color accentColor: "#00ff88"
+    property color bgColor: "#0a0a0f"
+    property color borderMutedColor: "#3a3a4a"
     property bool glowing: false
 
     font.family: "Consolas"
@@ -15,7 +17,7 @@ Button {
     contentItem: Text {
         text: control.text
         font: control.font
-        color: control.down ? "#0a0a0f" : (control.enabled ? control.accentColor : "#3a3a4a")
+        color: control.down ? control.bgColor : (control.enabled ? control.accentColor : control.borderMutedColor)
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
     }
@@ -51,9 +53,9 @@ Button {
             anchors.fill: parent
             color: control.down ? control.accentColor : "transparent"
             border.color: {
-                if (!control.enabled) return "#2a2a3a"
+                if (!control.enabled) return control.borderMutedColor
                 if (control.hovered || control.glowing) return control.accentColor
-                return "#3a3a4a"
+                return control.borderMutedColor
             }
             border.width: (control.hovered || control.glowing) ? 2 : 1
             Behavior on border.color { ColorAnimation { duration: 150 } }
