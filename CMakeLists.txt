@@ -5,12 +5,14 @@ project(UARTPro VERSION 0.1 LANGUAGES CXX)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 6.2 COMPONENTS Quick QuickControls2 SerialPort REQUIRED)
+find_package(Qt6 6.2 COMPONENTS Quick QuickControls2 SerialPort QuickDialogs2 REQUIRED)
 
 qt_add_executable(appUARTPro
     main.cpp
     SerialPortManager.h
     SerialPortManager.cpp
+    FileLogger.h
+    FileLogger.cpp
 )
 
 qt_add_qml_module(appUARTPro
@@ -32,7 +34,7 @@ set_target_properties(appUARTPro PROPERTIES
 )
 
 target_link_libraries(appUARTPro
-    PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::SerialPort)
+    PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::SerialPort Qt6::QuickDialogs2)
 
 include(GNUInstallDirs)
 install(TARGETS appUARTPro

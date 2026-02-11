@@ -1,6 +1,8 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtQuick.Dialogs
+import Qt.labs.settings 1.0
 
 Window {
     id: root
@@ -111,7 +113,12 @@ Window {
     property bool showLineNumbers: false
     property bool colorNumbers: true
     onColorNumbersChanged: keywordRevision++
+    property int maxBufferLines: 50000
+    property int entryIndexOffset: 0
+    readonly property var bufferSizeOptions: [10000, 50000, 100000, 500000]
     property string lastClickedRowText: ""
+    property string exportMode: "filtered"
+    property bool settingsLoaded: false
 
     // ── Terminal & Keyword State ─────────────────────────────────
     property var terminalEntries: []
@@ -397,6 +404,39 @@ Window {
                 font.family: root.fontMono; font.pixelSize: 11
                 font.letterSpacing: 1
                 color: parent.enabled ? root.colorDestructive : root.colorMutedFg
+            }
+            background: Rectangle {
+                color: parent.hovered ? root.colorMuted : "transparent"
+            }
+        }
+
+        MenuSeparator {
+            contentItem: Rectangle { implicitHeight: 1; color: root.colorBorder }
+        }
+
+        MenuItem {
+            text: "  EXPORT FILTERED..."
+            enabled: terminalModel.count > 0
+            onTriggered: { root.exportMode = "filtered"; exportSaveDialog.open() }
+            contentItem: Text {
+                text: parent.text
+                font.family: root.fontMono; font.pixelSize: 11
+                font.letterSpacing: 1
+                color: parent.enabled ? root.colorAccentTertiary : root.colorMutedFg
+            }
+            background: Rectangle {
+                color: parent.hovered ? root.colorMuted : "transparent"
+            }
+        }
+        MenuItem {
+            text: "  EXPORT ALL..."
+            enabled: root.terminalEntries.length > 0
+            onTriggered: { root.exportMode = "all"; exportSaveDialog.open() }
+            contentItem: Text {
+                text: parent.text
+                font.family: root.fontMono; font.pixelSize: 11
+                font.letterSpacing: 1
+                color: parent.enabled ? root.colorAccentTertiary : root.colorMutedFg
             }
             background: Rectangle {
                 color: parent.hovered ? root.colorMuted : "transparent"
@@ -776,6 +816,7 @@ Window {
                             cardColor: root.colorCard; borderColor: root.colorBorder
                             fgColor: root.colorFg; bgColor: root.colorBg
                             mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
+                            onCurrentIndexChanged: if (root.settingsLoaded) connectionSettings.lastBaudIndex = currentIndex
                         }
 
                         // DATA BITS
@@ -793,6 +834,7 @@ Window {
                             cardColor: root.colorCard; borderColor: root.colorBorder
                             fgColor: root.colorFg; bgColor: root.colorBg
                             mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
+                            onCurrentIndexChanged: if (root.settingsLoaded) connectionSettings.lastDataBitsIndex = currentIndex
                         }
 
                         // STOP BITS
@@ -810,6 +852,7 @@ Window {
                             cardColor: root.colorCard; borderColor: root.colorBorder
                             fgColor: root.colorFg; bgColor: root.colorBg
                             mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
+                            onCurrentIndexChanged: if (root.settingsLoaded) connectionSettings.lastStopBitsIndex = currentIndex
                         }
 
                         // PARITY
@@ -827,6 +870,7 @@ Window {
                             cardColor: root.colorCard; borderColor: root.colorBorder
                             fgColor: root.colorFg; bgColor: root.colorBg
                             mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
+                            onCurrentIndexChanged: if (root.settingsLoaded) connectionSettings.lastParityIndex = currentIndex
                         }
 
                         Item { height: 4 }
@@ -918,6 +962,24 @@ Window {
                             onCheckedChanged: root.colorNumbers = checked
                         }
 
+                        // Buffer Size
+                        Text {
+                            text: "BUFFER SIZE"
+                            font.family: root.fontMono; font.pixelSize: 10
+                            font.letterSpacing: 2; color: root.colorMutedFg
+                        }
+                        CyberComboBox {
+                            id: bufferSizeCombo
+                            Layout.fillWidth: true
+                            model: root.bufferSizeOptions
+                            currentIndex: 1
+                            accentColor: root.colorAccentTertiary
+                            cardColor: root.colorCard; borderColor: root.colorBorder
+                            fgColor: root.colorFg; bgColor: root.colorBg
+                            mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
+                            onCurrentIndexChanged: root.maxBufferLines = root.bufferSizeOptions[currentIndex]
+                        }
+
                         Item { height: 8 }
 
                         Rectangle { Layout.fillWidth: true; height: 1; color: root.colorBorder }
@@ -938,6 +1000,23 @@ Window {
                             accentColor: root.colorAccentTertiary
                             bgColor: root.colorBg; borderMutedColor: root.colorBorder
                             onClicked: serialManager.refreshPorts()
+                        }
+
+                        CyberButton {
+                            Layout.fillWidth: true
+                            text: fileLogger.logging ? "STOP LOGGING" : "LOG TO FILE"
+                            accentColor: fileLogger.logging ? root.colorDestructive : root.colorAccent
+                            bgColor: root.colorBg; borderMutedColor: root.colorBorder
+                            onClicked: {
+                                if (fileLogger.logging) {
+                                    fileLogger.stopLogging()
+                                    var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+                                    addTerminalEntry(ts, "Logging stopped — " + fileLogger.logFilePath, "", "system")
+                                } else {
+                                    logSaveDialog.selectedFile = "file:///" + fileLogger.generateDefaultPath()
+                                    logSaveDialog.open()
+                                }
+                            }
                         }
 
                         Item { Layout.fillHeight: true }
@@ -1382,6 +1461,7 @@ Window {
                                                     onClicked: {
                                                         root.keywordRevision++
                                                         keywordModel.remove(index)
+                                                        settingsSaveTimer.restart()
                                                     }
                                                 }
                                             }
@@ -1425,6 +1505,7 @@ Window {
                                                     onClicked: {
                                                         whitelistModel.remove(index)
                                                         rebuildFilteredModel()
+                                                        settingsSaveTimer.restart()
                                                     }
                                                 }
                                             }
@@ -1468,6 +1549,7 @@ Window {
                                                     onClicked: {
                                                         blacklistModel.remove(index)
                                                         rebuildFilteredModel()
+                                                        settingsSaveTimer.restart()
                                                     }
                                                 }
                                             }
@@ -1809,6 +1891,7 @@ Window {
                                 fgColor: root.colorFg; bgColor: root.colorBg
                                 mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
                                 font.pixelSize: 10
+                                onCurrentIndexChanged: if (root.settingsLoaded) connectionSettings.lastLineEndingIndex = currentIndex
                             }
 
                             // Transmit button
@@ -1883,6 +1966,50 @@ Window {
                     font.pixelSize: 10
                     font.letterSpacing: 1
                     color: root.colorMutedFg
+                }
+
+                Rectangle { width: 1; Layout.fillHeight: true; Layout.topMargin: 6; Layout.bottomMargin: 6; color: root.colorBorder }
+
+                // Buffer usage
+                Text {
+                    text: "BUF: " + root.terminalEntries.length + "/" + root.maxBufferLines
+                    font.family: root.fontMono
+                    font.pixelSize: 10
+                    font.letterSpacing: 1
+                    color: (root.terminalEntries.length / root.maxBufferLines > 0.9)
+                           ? "#ffaa00" : root.colorMutedFg
+                }
+
+                // REC indicator (visible when logging)
+                Rectangle { width: 1; Layout.fillHeight: true; Layout.topMargin: 6; Layout.bottomMargin: 6; color: root.colorBorder; visible: fileLogger.logging }
+
+                Row {
+                    visible: fileLogger.logging
+                    spacing: 4
+                    Layout.alignment: Qt.AlignVCenter
+
+                    Rectangle {
+                        id: recDot
+                        width: 6; height: 6; radius: 3
+                        color: root.colorDestructive
+                        anchors.verticalCenter: parent.verticalCenter
+
+                        SequentialAnimation on opacity {
+                            running: fileLogger.logging
+                            loops: Animation.Infinite
+                            NumberAnimation { to: 0.3; duration: 600 }
+                            NumberAnimation { to: 1.0; duration: 600 }
+                        }
+                    }
+
+                    Text {
+                        text: "REC " + formatBytes(fileLogger.logFileSize)
+                        font.family: root.fontMono
+                        font.pixelSize: 10
+                        font.letterSpacing: 1
+                        font.bold: true
+                        color: root.colorDestructive
+                    }
                 }
 
                 Item { Layout.fillWidth: true }
@@ -1980,6 +2107,44 @@ Window {
     }
 
     // ══════════════════════════════════════════════════════════════
+    // FILE DIALOGS
+    // ══════════════════════════════════════════════════════════════
+    FileDialog {
+        id: logSaveDialog
+        title: "Save Log File"
+        fileMode: FileDialog.SaveFile
+        nameFilters: ["Log files (*.log)", "Text files (*.txt)", "All files (*)"]
+        onAccepted: {
+            if (fileLogger.startLogging(selectedFile.toString())) {
+                var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+                addTerminalEntry(ts, "Logging started — " + fileLogger.logFilePath, "", "system")
+            } else {
+                var ts2 = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+                addTerminalEntry(ts2, "Failed to start logging", "", "error")
+            }
+        }
+    }
+
+    FileDialog {
+        id: exportSaveDialog
+        title: "Export Data"
+        fileMode: FileDialog.SaveFile
+        nameFilters: ["Log files (*.log)", "CSV files (*.csv)", "All files (*)"]
+        onAccepted: {
+            var path = selectedFile.toString()
+            var entries = collectExportEntries()
+            var isCsv = path.toLowerCase().endsWith(".csv")
+            var ok = isCsv ? fileLogger.exportCsv(path, entries)
+                           : fileLogger.exportPlainText(path, entries)
+            var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+            if (ok)
+                addTerminalEntry(ts, "Exported " + entries.length + " entries to file (" + (isCsv ? "CSV" : "TXT") + ")", "", "system")
+            else
+                addTerminalEntry(ts, "Export failed", "", "error")
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
     // TIMERS & CONNECTIONS
     // ══════════════════════════════════════════════════════════════
     Timer {
@@ -2038,11 +2203,52 @@ Window {
             msgText: data,
             hexData: hexData || "",
             type: type,
-            entryIndex: root.terminalEntries.length
+            entryIndex: root.entryIndexOffset + root.terminalEntries.length
         }
+
+        // Log to file if active
+        if (fileLogger.logging)
+            fileLogger.logEntry(timestamp, type, data, hexData || "")
 
         var entries = root.terminalEntries
         entries.push(entry)
+
+        // Buffer limit: trim oldest 10% when exceeding max
+        if (entries.length > root.maxBufferLines) {
+            var removeCount = Math.floor(root.maxBufferLines * 0.1)
+            var removedMaxIndex = entries[removeCount - 1].entryIndex
+
+            entries.splice(0, removeCount)
+            root.entryIndexOffset += removeCount
+
+            // Sync terminalModel: remove entries at front with entryIndex <= threshold
+            var modelRemoveCount = 0
+            for (var m = 0; m < terminalModel.count; m++) {
+                if (terminalModel.get(m).entryIndex <= removedMaxIndex)
+                    modelRemoveCount++
+                else
+                    break
+            }
+            if (modelRemoveCount > 0)
+                terminalModel.remove(0, modelRemoveCount)
+
+            // Sync selectedSet
+            var newSel = {}
+            var keys = Object.keys(root.selectedSet)
+            for (var k = 0; k < keys.length; k++) {
+                if (parseInt(keys[k]) > removedMaxIndex)
+                    newSel[keys[k]] = true
+            }
+            root.selectedSet = newSel
+            root.selectionVersion++
+
+            // Invalidate search matches
+            if (root.searchMatches.length > 0) {
+                root.searchMatches = []
+                root.searchCurrentIndex = -1
+            }
+        }
+
         root.terminalEntries = entries
 
         if (passesFilter(entry)) {
@@ -2223,6 +2429,7 @@ Window {
     function clearTerminal() {
         terminalModel.clear()
         root.terminalEntries = []
+        root.entryIndexOffset = 0
         clearSelection()
     }
 
@@ -2296,6 +2503,7 @@ Window {
         root.kwColorIndex++
         keywordModel.append({ text: text, color: color })
         root.keywordRevision++
+        settingsSaveTimer.restart()
     }
 
     function addWhitelist(text) {
@@ -2303,6 +2511,7 @@ Window {
         if (text === "") return
         whitelistModel.append({ text: text })
         rebuildFilteredModel()
+        settingsSaveTimer.restart()
     }
 
     function addBlacklist(text) {
@@ -2310,6 +2519,7 @@ Window {
         if (text === "") return
         blacklistModel.append({ text: text })
         rebuildFilteredModel()
+        settingsSaveTimer.restart()
     }
 
     // ── Utilities ───────────────────────────────────────────────
@@ -2329,6 +2539,24 @@ Window {
         }
     }
 
+    function collectExportEntries() {
+        var result = []
+        if (root.exportMode === "filtered") {
+            for (var i = 0; i < terminalModel.count; i++) {
+                var item = terminalModel.get(i)
+                result.push({ timestamp: item.timestamp, type: item.type,
+                              msgText: item.msgText, hexData: item.hexData })
+            }
+        } else {
+            for (var j = 0; j < root.terminalEntries.length; j++) {
+                var e = root.terminalEntries[j]
+                result.push({ timestamp: e.timestamp, type: e.type,
+                              msgText: e.msgText, hexData: e.hexData })
+            }
+        }
+        return result
+    }
+
     function formatBytes(bytes) {
         if (bytes < 1024) return bytes + " B"
         if (bytes < 1048576) return (bytes / 1024).toFixed(1) + " KB"
@@ -2344,9 +2572,97 @@ Window {
              + String(s).padStart(2, '0')
     }
 
+    // ══════════════════════════════════════════════════════════════
+    // SETTINGS PERSISTENCE (CH-14)
+    // ══════════════════════════════════════════════════════════════
+    Settings {
+        id: generalSettings
+        category: "General"
+        property alias theme: root.currentTheme
+        property alias fontSize: root.terminalFontSize
+        property alias showTimestamp: root.showTimestamp
+        property alias hexDisplayMode: root.hexDisplayMode
+        property alias showLineNumbers: root.showLineNumbers
+        property alias colorNumbers: root.colorNumbers
+        property alias uiScale: root.uiScale
+        property alias hexSendMode: root.hexSendMode
+        property alias maxBufferLines: root.maxBufferLines
+    }
+
+    Settings {
+        id: filterSettings
+        category: "Filters"
+        property string keywordsJson: "[]"
+        property string whitelistJson: "[]"
+        property string blacklistJson: "[]"
+    }
+
+    Settings {
+        id: connectionSettings
+        category: "Connection"
+        property int lastBaudIndex: 4
+        property int lastDataBitsIndex: 0
+        property int lastStopBitsIndex: 0
+        property int lastParityIndex: 0
+        property int lastLineEndingIndex: 0
+    }
+
+    function serializeListModel(model) {
+        var arr = []
+        for (var i = 0; i < model.count; i++) {
+            var item = model.get(i)
+            arr.push({ text: item.text, color: item.color || "" })
+        }
+        return JSON.stringify(arr)
+    }
+
+    function deserializeToListModel(model, jsonStr) {
+        model.clear()
+        try {
+            var arr = JSON.parse(jsonStr)
+            for (var i = 0; i < arr.length; i++)
+                model.append(arr[i])
+        } catch(e) { /* ignore bad JSON */ }
+    }
+
+    Timer {
+        id: settingsSaveTimer
+        interval: 500
+        onTriggered: {
+            if (!root.settingsLoaded) return
+            filterSettings.keywordsJson = serializeListModel(keywordModel)
+            filterSettings.whitelistJson = serializeListModel(whitelistModel)
+            filterSettings.blacklistJson = serializeListModel(blacklistModel)
+        }
+    }
+
     // Boot sequence on startup
     Component.onCompleted: {
-        applyTheme(currentTheme)
+        // Restore connection combo indices
+        baudCombo.currentIndex = connectionSettings.lastBaudIndex
+        dataBitsCombo.currentIndex = connectionSettings.lastDataBitsIndex
+        stopBitsCombo.currentIndex = connectionSettings.lastStopBitsIndex
+        parityCombo.currentIndex = connectionSettings.lastParityIndex
+        lineEndingCombo.currentIndex = connectionSettings.lastLineEndingIndex
+
+        // Restore buffer size combo
+        var bufIdx = root.bufferSizeOptions.indexOf(root.maxBufferLines)
+        if (bufIdx >= 0) bufferSizeCombo.currentIndex = bufIdx
+
+        // Apply saved theme
+        applyTheme(root.currentTheme)
+
+        // Restore filter models
+        deserializeToListModel(keywordModel, filterSettings.keywordsJson)
+        deserializeToListModel(whitelistModel, filterSettings.whitelistJson)
+        deserializeToListModel(blacklistModel, filterSettings.blacklistJson)
+
+        // Rebuild filtered view if filters are active
+        if (whitelistModel.count > 0 || blacklistModel.count > 0)
+            rebuildFilteredModel()
+
+        root.settingsLoaded = true
+
         var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
         addTerminalEntry(ts, "UART PRO v0.1 // SERIAL TERMINAL INTERFACE", "", "system")
         addTerminalEntry(ts, "System initialized. Ready for connection.", "", "system")
