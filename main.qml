@@ -54,12 +54,29 @@ Window {
     property bool showTimestamp: true
     property bool hexSendMode: false
 
+    // ── Selection & Keyword State ──────────────────────────────────
+    property var terminalEntries: []
+    property var selectedSet: ({})
+    property int selectionVersion: 0
+    property int keywordRevision: 0
+    property int kwColorIndex: 0
+    readonly property var kwPalette: ["#ff3366", "#ffaa00", "#00ff88", "#00d4ff",
+                                      "#ff00ff", "#ffff00", "#ff6600", "#aa66ff"]
+
     // ── Baud / DataBits / StopBits / Parity models ────────────────
     readonly property var baudRates:  [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600]
     readonly property var dataBitsList: [8, 7, 6, 5]
     readonly property var stopBitsList: [1, 2]
     readonly property var parityList:   ["None", "Even", "Odd"]
     readonly property var lineEndings:  ["None", "CR", "LF", "CR+LF"]
+
+    // ── Data Models ────────────────────────────────────────────────
+    ListModel { id: keywordModel }
+    ListModel { id: whitelistModel }
+    ListModel { id: blacklistModel }
+
+    // Hidden TextEdit for clipboard access
+    TextEdit { id: clipHelper; visible: false }
 
     // ══════════════════════════════════════════════════════════════
     // BACKGROUND — circuit grid pattern
@@ -111,6 +128,74 @@ Window {
                 x: parent.isRight ? 29 : 0
                 anchors.top: parent.isBottom ? undefined : parent.top
                 anchors.bottom: parent.isBottom ? parent.bottom : undefined
+            }
+        }
+    }
+
+    // ── Right-click context menu ──────────────────────────────────
+    Menu {
+        id: terminalContextMenu
+        background: Rectangle {
+            implicitWidth: 200
+            color: root.colorCard
+            border.color: root.colorAccent
+            border.width: 1
+        }
+        MenuItem {
+            text: "  COPY SELECTED"
+            enabled: {
+                root.selectionVersion
+                var keys = Object.keys(root.selectedSet)
+                return keys.length > 0
+            }
+            onTriggered: copySelectedEntries()
+            contentItem: Text {
+                text: parent.text
+                font.family: root.fontMono; font.pixelSize: 11
+                font.letterSpacing: 1
+                color: parent.enabled ? root.colorAccent : root.colorMutedFg
+            }
+            background: Rectangle {
+                color: parent.hovered ? root.colorMuted : "transparent"
+            }
+        }
+        MenuItem {
+            text: "  COPY ALL"
+            onTriggered: copyAllEntries()
+            contentItem: Text {
+                text: parent.text
+                font.family: root.fontMono; font.pixelSize: 11
+                font.letterSpacing: 1
+                color: root.colorAccentTertiary
+            }
+            background: Rectangle {
+                color: parent.hovered ? root.colorMuted : "transparent"
+            }
+        }
+        MenuItem {
+            text: "  SELECT ALL"
+            onTriggered: selectAllEntries()
+            contentItem: Text {
+                text: parent.text
+                font.family: root.fontMono; font.pixelSize: 11
+                font.letterSpacing: 1
+                color: root.colorFg
+            }
+            background: Rectangle {
+                color: parent.hovered ? root.colorMuted : "transparent"
+            }
+        }
+        MenuItem {
+            text: "  CLEAR SELECTION"
+            onTriggered: clearSelection()
+            contentItem: Text {
+                text: parent.text
+                font.family: root.fontMono; font.pixelSize: 11
+                font.letterSpacing: 1
+                color: root.colorMutedFg
+            }
+            background: Rectangle {
+                color: parent.hovered ? root.colorMuted : "transparent"
             }
         }
     }
@@ -376,7 +461,7 @@ Window {
             // LEFT PANEL — Connection Settings
             // ════════════════════════════════════════════════════════
             Rectangle {
-                Layout.preferredWidth: 260
+                Layout.preferredWidth: 280
                 Layout.fillHeight: true
                 color: root.colorCard
                 border.color: root.colorBorder
@@ -564,6 +649,218 @@ Window {
 
                         Rectangle { Layout.fillWidth: true; height: 1; color: root.colorBorder }
 
+                        // ── Section: KEYWORDS ──────────────────────────
+                        Text {
+                            text: "> KEYWORDS"
+                            font.family: root.fontMono; font.pixelSize: 11
+                            font.letterSpacing: 2; font.bold: true
+                            color: "#ffaa00"
+                        }
+
+                        Rectangle { Layout.fillWidth: true; height: 1; color: root.colorBorder }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+                            CyberTextField {
+                                id: kwInput
+                                Layout.fillWidth: true
+                                placeholderText: "keyword..."
+                                accentColor: "#ffaa00"
+                                font.pixelSize: 11
+                            }
+                            CyberButton {
+                                Layout.preferredWidth: 40
+                                text: "+"
+                                accentColor: "#ffaa00"
+                                font.pixelSize: 14
+                                onClicked: addKeyword(kwInput.text)
+                            }
+                        }
+
+                        // Keyword list
+                        Repeater {
+                            model: keywordModel
+                            delegate: RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+                                Rectangle {
+                                    width: 12; height: 12
+                                    color: model.color
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: model.text
+                                    font.family: root.fontMono; font.pixelSize: 11
+                                    color: model.color
+                                    elide: Text.ElideRight
+                                }
+                                Text {
+                                    text: "✕"
+                                    font.family: root.fontMono; font.pixelSize: 12
+                                    font.bold: true
+                                    color: root.colorDestructive
+                                    opacity: kwDelMa.containsMouse ? 1.0 : 0.5
+                                    MouseArea {
+                                        id: kwDelMa
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            keywordModel.remove(index)
+                                            root.keywordRevision++
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Item { height: 4 }
+
+                        Rectangle { Layout.fillWidth: true; height: 1; color: root.colorBorder }
+
+                        // ── Section: WHITELIST ─────────────────────────
+                        Text {
+                            text: "> WHITELIST"
+                            font.family: root.fontMono; font.pixelSize: 11
+                            font.letterSpacing: 2; font.bold: true
+                            color: root.colorAccent
+                        }
+
+                        Rectangle { Layout.fillWidth: true; height: 1; color: root.colorBorder }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+                            CyberTextField {
+                                id: wlInput
+                                Layout.fillWidth: true
+                                placeholderText: "include..."
+                                accentColor: root.colorAccent
+                                font.pixelSize: 11
+                            }
+                            CyberButton {
+                                Layout.preferredWidth: 40
+                                text: "+"
+                                accentColor: root.colorAccent
+                                font.pixelSize: 14
+                                onClicked: addWhitelist(wlInput.text)
+                            }
+                        }
+
+                        Repeater {
+                            model: whitelistModel
+                            delegate: RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+                                Text {
+                                    text: "+"
+                                    font.family: root.fontMono; font.pixelSize: 12
+                                    font.bold: true
+                                    color: root.colorAccent
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: model.text
+                                    font.family: root.fontMono; font.pixelSize: 11
+                                    color: root.colorAccent
+                                    elide: Text.ElideRight
+                                }
+                                Text {
+                                    text: "✕"
+                                    font.family: root.fontMono; font.pixelSize: 12
+                                    font.bold: true
+                                    color: root.colorDestructive
+                                    opacity: wlDelMa.containsMouse ? 1.0 : 0.5
+                                    MouseArea {
+                                        id: wlDelMa
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            whitelistModel.remove(index)
+                                            rebuildFilteredModel()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Item { height: 4 }
+
+                        Rectangle { Layout.fillWidth: true; height: 1; color: root.colorBorder }
+
+                        // ── Section: BLACKLIST ─────────────────────────
+                        Text {
+                            text: "> BLACKLIST"
+                            font.family: root.fontMono; font.pixelSize: 11
+                            font.letterSpacing: 2; font.bold: true
+                            color: root.colorDestructive
+                        }
+
+                        Rectangle { Layout.fillWidth: true; height: 1; color: root.colorBorder }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+                            CyberTextField {
+                                id: blInput
+                                Layout.fillWidth: true
+                                placeholderText: "exclude..."
+                                accentColor: root.colorDestructive
+                                font.pixelSize: 11
+                            }
+                            CyberButton {
+                                Layout.preferredWidth: 40
+                                text: "+"
+                                accentColor: root.colorDestructive
+                                font.pixelSize: 14
+                                onClicked: addBlacklist(blInput.text)
+                            }
+                        }
+
+                        Repeater {
+                            model: blacklistModel
+                            delegate: RowLayout {
+                                Layout.fillWidth: true
+                                spacing: 6
+                                Text {
+                                    text: "−"
+                                    font.family: root.fontMono; font.pixelSize: 14
+                                    font.bold: true
+                                    color: root.colorDestructive
+                                }
+                                Text {
+                                    Layout.fillWidth: true
+                                    text: model.text
+                                    font.family: root.fontMono; font.pixelSize: 11
+                                    color: root.colorDestructive
+                                    elide: Text.ElideRight
+                                }
+                                Text {
+                                    text: "✕"
+                                    font.family: root.fontMono; font.pixelSize: 12
+                                    font.bold: true
+                                    color: root.colorDestructive
+                                    opacity: blDelMa.containsMouse ? 1.0 : 0.5
+                                    MouseArea {
+                                        id: blDelMa
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            blacklistModel.remove(index)
+                                            rebuildFilteredModel()
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Item { height: 8 }
+
+                        Rectangle { Layout.fillWidth: true; height: 1; color: root.colorBorder }
+
                         // Section: ACTIONS
                         Text {
                             text: "> ACTIONS"
@@ -582,9 +879,26 @@ Window {
                         }
                         CyberButton {
                             Layout.fillWidth: true
+                            text: "COPY LOG"
+                            accentColor: "#ffaa00"
+                            onClicked: {
+                                var keys = Object.keys(root.selectedSet)
+                                root.selectionVersion
+                                if (keys.length > 0)
+                                    copySelectedEntries()
+                                else
+                                    copyAllEntries()
+                            }
+                        }
+                        CyberButton {
+                            Layout.fillWidth: true
                             text: "CLEAR TERMINAL"
                             accentColor: root.colorAccentSecondary
-                            onClicked: terminalModel.clear()
+                            onClicked: {
+                                terminalModel.clear()
+                                root.terminalEntries = []
+                                clearSelection()
+                            }
                         }
 
                         Item { Layout.fillHeight: true }
@@ -640,6 +954,32 @@ Window {
 
                             Item { Layout.fillWidth: true }
 
+                            // Filter indicator
+                            Text {
+                                visible: whitelistModel.count > 0 || blacklistModel.count > 0
+                                text: "[FILTERED " + terminalModel.count + "/" + root.terminalEntries.length + "]"
+                                font.family: root.fontMono
+                                font.pixelSize: 10
+                                font.letterSpacing: 1
+                                font.bold: true
+                                color: "#ffaa00"
+                            }
+
+                            // Selection indicator
+                            Text {
+                                property int selCount: {
+                                    root.selectionVersion
+                                    return Object.keys(root.selectedSet).length
+                                }
+                                visible: selCount > 0
+                                text: "[SEL " + selCount + "]"
+                                font.family: root.fontMono
+                                font.pixelSize: 10
+                                font.letterSpacing: 1
+                                font.bold: true
+                                color: root.colorAccentSecondary
+                            }
+
                             Text {
                                 text: root.hexDisplayMode ? "[HEX]" : "[ASCII]"
                                 font.family: root.fontMono
@@ -689,53 +1029,95 @@ Window {
                                 }
                             }
 
-                            delegate: Row {
+                            delegate: Item {
                                 width: terminalView.width - 16
-                                spacing: 8
                                 height: Math.max(dataText.contentHeight, 18)
 
-                                // Timestamp
-                                Text {
-                                    id: tsText
-                                    visible: root.showTimestamp
-                                    text: model.timestamp
-                                    font.family: root.fontMono
-                                    font.pixelSize: 12
-                                    color: root.colorMutedFg
-                                    width: visible ? 90 : 0
-                                    anchors.top: parent.top
+                                property bool isSelected: {
+                                    root.selectionVersion
+                                    return root.selectedSet.hasOwnProperty(model.entryIndex)
                                 }
 
-                                // Direction prefix
-                                Text {
-                                    id: prefixText
-                                    text: {
-                                        switch (model.type) {
-                                        case "rx":     return "RX>"
-                                        case "tx":     return "TX>"
-                                        case "system": return "SYS>"
-                                        case "error":  return "ERR>"
-                                        default:       return ">"
+                                // Selection highlight
+                                Rectangle {
+                                    anchors.fill: parent
+                                    anchors.margins: -2
+                                    color: parent.isSelected ? root.colorAccent : "transparent"
+                                    opacity: 0.1
+                                }
+                                Rectangle {
+                                    anchors.fill: parent
+                                    anchors.margins: -2
+                                    color: "transparent"
+                                    border.color: root.colorAccent
+                                    border.width: parent.isSelected ? 1 : 0
+                                    opacity: 0.3
+                                }
+
+                                MouseArea {
+                                    anchors.fill: parent
+                                    acceptedButtons: Qt.LeftButton | Qt.RightButton
+                                    onClicked: function(mouse) {
+                                        if (mouse.button === Qt.RightButton) {
+                                            terminalContextMenu.popup()
+                                        } else {
+                                            toggleSelection(model.entryIndex, mouse.modifiers & Qt.ControlModifier)
                                         }
                                     }
-                                    font.family: root.fontMono
-                                    font.pixelSize: 12
-                                    font.bold: true
-                                    color: model.msgColor
-                                    width: 36
-                                    anchors.top: parent.top
                                 }
 
-                                // Data content
-                                Text {
-                                    id: dataText
-                                    text: root.hexDisplayMode && model.hexData !== "" ? model.hexData : model.data
-                                    font.family: root.fontMono
-                                    font.pixelSize: 12
-                                    color: root.colorFg
-                                    width: parent.width - tsText.width - prefixText.width - 24
-                                    wrapMode: Text.WrapAnywhere
-                                    anchors.top: parent.top
+                                Row {
+                                    anchors.fill: parent
+                                    spacing: 8
+
+                                    // Timestamp
+                                    Text {
+                                        id: tsText
+                                        visible: root.showTimestamp
+                                        text: model.timestamp
+                                        font.family: root.fontMono
+                                        font.pixelSize: 12
+                                        color: root.colorMutedFg
+                                        width: visible ? 90 : 0
+                                        anchors.top: parent.top
+                                    }
+
+                                    // Direction prefix
+                                    Text {
+                                        id: prefixText
+                                        text: {
+                                            switch (model.type) {
+                                            case "rx":     return "RX>"
+                                            case "tx":     return "TX>"
+                                            case "system": return "SYS>"
+                                            case "error":  return "ERR>"
+                                            default:       return ">"
+                                            }
+                                        }
+                                        font.family: root.fontMono
+                                        font.pixelSize: 12
+                                        font.bold: true
+                                        color: model.msgColor
+                                        width: 36
+                                        anchors.top: parent.top
+                                    }
+
+                                    // Data content with keyword highlighting
+                                    Text {
+                                        id: dataText
+                                        text: {
+                                            root.keywordRevision
+                                            var raw = root.hexDisplayMode && model.hexData !== "" ? model.hexData : model.data
+                                            return highlightText(raw)
+                                        }
+                                        textFormat: Text.RichText
+                                        font.family: root.fontMono
+                                        font.pixelSize: 12
+                                        color: root.colorFg
+                                        width: parent.width - tsText.width - prefixText.width - 24
+                                        wrapMode: Text.WrapAnywhere
+                                        anchors.top: parent.top
+                                    }
                                 }
                             }
 
@@ -1017,6 +1399,8 @@ Window {
     // ══════════════════════════════════════════════════════════════
     // HELPER FUNCTIONS
     // ══════════════════════════════════════════════════════════════
+
+    // ── Entry & Filter ──────────────────────────────────────────
     function addTerminalEntry(timestamp, data, hexData, type) {
         var color
         switch (type) {
@@ -1026,17 +1410,202 @@ Window {
         case "error":  color = "#ff3366"; break
         default:       color = "#e0e0e0"
         }
-        terminalModel.append({
+
+        var entry = {
             timestamp: timestamp,
             data: data,
             hexData: hexData || "",
             type: type,
-            msgColor: color
-        })
+            msgColor: color,
+            entryIndex: root.terminalEntries.length
+        }
+
+        var entries = root.terminalEntries
+        entries.push(entry)
+        root.terminalEntries = entries
+
+        if (passesFilter(entry)) {
+            terminalModel.append(entry)
+        }
+
         if (root.autoScroll)
             terminalView.positionViewAtEnd()
     }
 
+    function passesFilter(entry) {
+        // system and error messages always pass
+        if (entry.type === "system" || entry.type === "error")
+            return true
+
+        var text = entry.data.toLowerCase()
+
+        // Whitelist: if any whitelist entries exist, data must contain at least one
+        if (whitelistModel.count > 0) {
+            var wlPass = false
+            for (var i = 0; i < whitelistModel.count; i++) {
+                if (text.indexOf(whitelistModel.get(i).text.toLowerCase()) >= 0) {
+                    wlPass = true
+                    break
+                }
+            }
+            if (!wlPass) return false
+        }
+
+        // Blacklist: data must not contain any blacklist entry
+        for (var j = 0; j < blacklistModel.count; j++) {
+            if (text.indexOf(blacklistModel.get(j).text.toLowerCase()) >= 0)
+                return false
+        }
+
+        return true
+    }
+
+    function rebuildFilteredModel() {
+        terminalModel.clear()
+        clearSelection()
+        for (var i = 0; i < root.terminalEntries.length; i++) {
+            var entry = root.terminalEntries[i]
+            if (passesFilter(entry)) {
+                terminalModel.append(entry)
+            }
+        }
+        if (root.autoScroll)
+            terminalView.positionViewAtEnd()
+    }
+
+    // ── Keyword Highlighting ────────────────────────────────────
+    function escapeHtml(str) {
+        return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    }
+
+    function escapeRegex(str) {
+        return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    }
+
+    function highlightText(raw) {
+        if (keywordModel.count === 0)
+            return escapeHtml(raw)
+
+        var html = escapeHtml(raw)
+
+        for (var i = 0; i < keywordModel.count; i++) {
+            var kw = keywordModel.get(i)
+            var escaped = escapeRegex(escapeHtml(kw.text))
+            var re = new RegExp("(" + escaped + ")", "gi")
+            html = html.replace(re, "<span style='background-color:" + kw.color + ";color:#0a0a0f;font-weight:bold;'>$1</span>")
+        }
+
+        return html
+    }
+
+    // ── Selection ───────────────────────────────────────────────
+    function toggleSelection(entryIdx, ctrlHeld) {
+        var s = root.selectedSet
+        if (ctrlHeld) {
+            if (s.hasOwnProperty(entryIdx))
+                delete s[entryIdx]
+            else
+                s[entryIdx] = true
+        } else {
+            s = {}
+            s[entryIdx] = true
+        }
+        root.selectedSet = s
+        root.selectionVersion++
+    }
+
+    function clearSelection() {
+        root.selectedSet = {}
+        root.selectionVersion++
+    }
+
+    function selectAllEntries() {
+        var s = {}
+        for (var i = 0; i < terminalModel.count; i++) {
+            s[terminalModel.get(i).entryIndex] = true
+        }
+        root.selectedSet = s
+        root.selectionVersion++
+    }
+
+    // ── Copy ────────────────────────────────────────────────────
+    function buildEntryText(entry) {
+        var line = ""
+        if (root.showTimestamp)
+            line += entry.timestamp + " "
+
+        switch (entry.type) {
+        case "rx":     line += "RX> "; break
+        case "tx":     line += "TX> "; break
+        case "system": line += "SYS> "; break
+        case "error":  line += "ERR> "; break
+        default:       line += "> "
+        }
+
+        line += (root.hexDisplayMode && entry.hexData !== "") ? entry.hexData : entry.data
+        return line
+    }
+
+    function copyToClipboard(text) {
+        clipHelper.text = text
+        clipHelper.selectAll()
+        clipHelper.copy()
+        clipHelper.text = ""
+
+        // Show feedback in terminal
+        var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+        addTerminalEntry(ts, "Copied to clipboard (" + text.split("\n").length + " lines)", "", "system")
+    }
+
+    function copySelectedEntries() {
+        var lines = []
+        for (var i = 0; i < root.terminalEntries.length; i++) {
+            if (root.selectedSet.hasOwnProperty(i)) {
+                lines.push(buildEntryText(root.terminalEntries[i]))
+            }
+        }
+        if (lines.length > 0)
+            copyToClipboard(lines.join("\n"))
+    }
+
+    function copyAllEntries() {
+        var lines = []
+        for (var i = 0; i < terminalModel.count; i++) {
+            var entry = terminalModel.get(i)
+            lines.push(buildEntryText(entry))
+        }
+        if (lines.length > 0)
+            copyToClipboard(lines.join("\n"))
+    }
+
+    // ── Keyword / Whitelist / Blacklist add ─────────────────────
+    function addKeyword(text) {
+        text = text.trim()
+        if (text === "") return
+        var color = root.kwPalette[root.kwColorIndex % root.kwPalette.length]
+        root.kwColorIndex++
+        keywordModel.append({ text: text, color: color })
+        kwInput.text = ""
+        root.keywordRevision++
+    }
+
+    function addWhitelist(text) {
+        text = text.trim()
+        if (text === "") return
+        whitelistModel.append({ text: text })
+        wlInput.text = ""
+        rebuildFilteredModel()
+    }
+
+    function addBlacklist(text) {
+        text = text.trim()
+        if (text === "") return
+        blacklistModel.append({ text: text })
+        blInput.text = ""
+        rebuildFilteredModel()
+    }
+
+    // ── Utilities ───────────────────────────────────────────────
     function sendCurrentData() {
         var data = sendInput.text
         if (data.length === 0) return
