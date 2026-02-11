@@ -43,8 +43,11 @@ private slots:
     void handleError(QSerialPort::SerialPortError error);
 
 private:
+    void emitLine(const QByteArray &lineData);
+
     QSerialPort *m_serialPort;
     QStringList m_availablePorts;
+    QByteArray m_rxBuffer;
     qint64 m_rxBytes;
     qint64 m_txBytes;
 };

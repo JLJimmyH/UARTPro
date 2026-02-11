@@ -70,6 +70,7 @@ bool SerialPortManager::connectToPort(const QString &portName, int baudRate,
     }
 
     if (m_serialPort->open(QIODevice::ReadWrite)) {
+        m_rxBuffer.clear();
         m_rxBytes = 0;
         m_txBytes = 0;
         emit rxBytesChanged();
@@ -85,6 +86,11 @@ bool SerialPortManager::connectToPort(const QString &portName, int baudRate,
 void SerialPortManager::disconnectPort()
 {
     if (m_serialPort->isOpen()) {
+        // Flush any remaining buffered data before closing
+        if (!m_rxBuffer.isEmpty()) {
+            emitLine(m_rxBuffer);
+            m_rxBuffer.clear();
+        }
         m_serialPort->close();
         emit connectedChanged();
     }
@@ -121,22 +127,63 @@ void SerialPortManager::handleReadyRead()
     m_rxBytes += data.size();
     emit rxBytesChanged();
 
+    m_rxBuffer.append(data);
+
+    // Split buffer by line endings (\r\n, \n, or \r)
+    while (!m_rxBuffer.isEmpty()) {
+        int idxLF = m_rxBuffer.indexOf('\n');
+        int idxCR = m_rxBuffer.indexOf('\r');
+
+        int splitPos = -1;
+        int skipLen = 0;
+
+        if (idxCR >= 0 && idxCR + 1 < m_rxBuffer.size() && m_rxBuffer.at(idxCR + 1) == '\n') {
+            // \r\n
+            splitPos = idxCR;
+            skipLen = 2;
+        } else if (idxLF >= 0 && (idxCR < 0 || idxLF < idxCR)) {
+            // \n comes first
+            splitPos = idxLF;
+            skipLen = 1;
+        } else if (idxCR >= 0) {
+            // Lone \r — but if it's the last byte, it might be followed by \n in next chunk
+            if (idxCR == m_rxBuffer.size() - 1) {
+                // Wait for more data to determine if \r\n
+                break;
+            }
+            splitPos = idxCR;
+            skipLen = 1;
+        } else {
+            // No line ending found — keep in buffer
+            break;
+        }
+
+        QByteArray lineData = m_rxBuffer.left(splitPos);
+        m_rxBuffer.remove(0, splitPos + skipLen);
+
+        emitLine(lineData);
+    }
+}
+
+void SerialPortManager::emitLine(const QByteArray &lineData)
+{
+    if (lineData.isEmpty())
+        return;
+
     QString timestamp = QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss.zzz"));
 
     // Build ASCII representation, replace non-printable chars with '.'
     QString asciiStr;
-    asciiStr.reserve(data.size());
-    for (int i = 0; i < data.size(); ++i) {
-        char c = data.at(i);
+    asciiStr.reserve(lineData.size());
+    for (int i = 0; i < lineData.size(); ++i) {
+        char c = lineData.at(i);
         if (c >= 32 && c <= 126)
-            asciiStr += QLatin1Char(c);
-        else if (c == '\n' || c == '\r')
             asciiStr += QLatin1Char(c);
         else
             asciiStr += QLatin1Char('.');
     }
 
-    QString hexStr = QString::fromLatin1(data.toHex(' ')).toUpper();
+    QString hexStr = QString::fromLatin1(lineData.toHex(' ')).toUpper();
 
     emit dataReceived(timestamp, asciiStr, hexStr);
 }

@@ -49,6 +49,12 @@ Window {
             bg: "#0a0800", fg: "#ffb000", card: "#12100a", muted: "#1c1a10",
             mutedFg: "#7a6b40", accent: "#ffb000", accentSecondary: "#ff6600",
             accentTertiary: "#ffdd00", border: "#2a2818", destructive: "#ff3300"
+        },
+        {
+            name: "NEON",
+            bg: "#0a0a0f", fg: "#ffffff", card: "#12121a", muted: "#1a1a2a",
+            mutedFg: "#8888aa", accent: "#00ffff", accentSecondary: "#ff00ff",
+            accentTertiary: "#ffff00", border: "#1e1e2e", destructive: "#ff0055"
         }
     ]
 
