@@ -1338,7 +1338,7 @@ Window {
                             Rectangle {
                                 Layout.preferredWidth: 24
                                 Layout.preferredHeight: 24
-                                color: closeMa.containsMouse ? Qt.rgba(root.colorDestructive.r, root.colorDestructive.g, root.colorDestructive.b, 0.15) : "transparent"
+                                color: searchCloseMa.containsMouse ? Qt.rgba(root.colorDestructive.r, root.colorDestructive.g, root.colorDestructive.b, 0.15) : "transparent"
                                 border.color: root.colorBorder
                                 border.width: 1
                                 Layout.alignment: Qt.AlignVCenter
@@ -1348,11 +1348,11 @@ Window {
                                     text: "\u2715"
                                     font.family: root.fontMono
                                     font.pixelSize: 11
-                                    color: closeMa.containsMouse ? root.colorDestructive : root.colorMutedFg
+                                    color: searchCloseMa.containsMouse ? root.colorDestructive : root.colorMutedFg
                                 }
 
                                 MouseArea {
-                                    id: closeMa
+                                    id: searchCloseMa
                                     anchors.fill: parent
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
