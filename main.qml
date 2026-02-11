@@ -55,6 +55,18 @@ Window {
             bg: "#0a0a0f", fg: "#ffffff", card: "#12121a", muted: "#1a1a2a",
             mutedFg: "#8888aa", accent: "#00ffff", accentSecondary: "#ff00ff",
             accentTertiary: "#ffff00", border: "#1e1e2e", destructive: "#ff0055"
+        },
+        {
+            name: "FLAT",
+            bg: "#ffffff", fg: "#111827", card: "#f3f4f6", muted: "#e5e7eb",
+            mutedFg: "#6b7280", accent: "#3b82f6", accentSecondary: "#10b981",
+            accentTertiary: "#f59e0b", border: "#e5e7eb", destructive: "#ef4444"
+        },
+        {
+            name: "CLAY",
+            bg: "#f4f1fa", fg: "#332f3a", card: "#ffffff", muted: "#ede8f5",
+            mutedFg: "#635f69", accent: "#7c3aed", accentSecondary: "#db2777",
+            accentTertiary: "#0ea5e9", border: "#ddd6ec", destructive: "#e11d48"
         }
     ]
 
@@ -94,10 +106,11 @@ Window {
     property bool showTimestamp: true
     property bool hexSendMode: false
 
-    // ── Selection & Keyword State ──────────────────────────────────
+    // ── Terminal & Keyword State ─────────────────────────────────
     property var terminalEntries: []
     property var selectedSet: ({})
     property int selectionVersion: 0
+    property int lastClickedRow: -1
     property int keywordRevision: 0
     property int kwColorIndex: 0
     readonly property var kwPalette: ["#ff3366", "#ffaa00", "#00ff88", "#00d4ff",
@@ -117,6 +130,18 @@ Window {
 
     // Hidden TextEdit for clipboard access
     TextEdit { id: clipHelper; visible: false }
+
+    // ── Keyboard Shortcuts ────────────────────────────────────────
+    Shortcut {
+        sequence: "Ctrl+L"
+        context: Qt.ApplicationShortcut
+        onActivated: clearTerminal()
+    }
+    Shortcut {
+        sequence: "Ctrl+C"
+        context: Qt.ApplicationShortcut
+        onActivated: copySelectedEntries()
+    }
 
     // ══════════════════════════════════════════════════════════════
     // BACKGROUND — circuit grid pattern
@@ -184,11 +209,7 @@ Window {
         }
         MenuItem {
             text: "  COPY SELECTED"
-            enabled: {
-                root.selectionVersion
-                var keys = Object.keys(root.selectedSet)
-                return keys.length > 0
-            }
+            enabled: { root.selectionVersion; return Object.keys(root.selectedSet).length > 0 }
             onTriggered: copySelectedEntries()
             contentItem: Text {
                 text: parent.text
@@ -228,12 +249,26 @@ Window {
         }
         MenuItem {
             text: "  CLEAR SELECTION"
+            enabled: { root.selectionVersion; return Object.keys(root.selectedSet).length > 0 }
             onTriggered: clearSelection()
             contentItem: Text {
                 text: parent.text
                 font.family: root.fontMono; font.pixelSize: 11
                 font.letterSpacing: 1
-                color: root.colorMutedFg
+                color: parent.enabled ? root.colorFg : root.colorMutedFg
+            }
+            background: Rectangle {
+                color: parent.hovered ? root.colorMuted : "transparent"
+            }
+        }
+        MenuItem {
+            text: "  CLEAR TERMINAL"
+            onTriggered: clearTerminal()
+            contentItem: Text {
+                text: parent.text
+                font.family: root.fontMono; font.pixelSize: 11
+                font.letterSpacing: 1
+                color: root.colorDestructive
             }
             background: Rectangle {
                 color: parent.hovered ? root.colorMuted : "transparent"
@@ -982,25 +1017,14 @@ Window {
                             text: "COPY LOG"
                             accentColor: "#ffaa00"
                             bgColor: root.colorBg; borderMutedColor: root.colorBorder
-                            onClicked: {
-                                var keys = Object.keys(root.selectedSet)
-                                root.selectionVersion
-                                if (keys.length > 0)
-                                    copySelectedEntries()
-                                else
-                                    copyAllEntries()
-                            }
+                            onClicked: copyAllEntries()
                         }
                         CyberButton {
                             Layout.fillWidth: true
                             text: "CLEAR TERMINAL"
                             accentColor: root.colorAccentSecondary
                             bgColor: root.colorBg; borderMutedColor: root.colorBorder
-                            onClicked: {
-                                terminalModel.clear()
-                                root.terminalEntries = []
-                                clearSelection()
-                            }
+                            onClicked: clearTerminal()
                         }
 
                         Item { Layout.fillHeight: true }
@@ -1067,19 +1091,14 @@ Window {
                                 color: "#ffaa00"
                             }
 
-                            // Selection indicator
                             Text {
-                                property int selCount: {
-                                    root.selectionVersion
-                                    return Object.keys(root.selectedSet).length
-                                }
-                                visible: selCount > 0
-                                text: "[SEL " + selCount + "]"
+                                visible: { root.selectionVersion; return Object.keys(root.selectedSet).length > 0 }
+                                text: { root.selectionVersion; return "[SEL " + Object.keys(root.selectedSet).length + "]" }
                                 font.family: root.fontMono
                                 font.pixelSize: 10
                                 font.letterSpacing: 1
                                 font.bold: true
-                                color: root.colorAccentSecondary
+                                color: root.colorAccent
                             }
 
                             Text {
@@ -1108,13 +1127,14 @@ Window {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
 
+                        ListModel { id: terminalModel }
+
                         ListView {
                             id: terminalView
                             anchors.fill: parent
                             anchors.margins: 8
+                            model: terminalModel
                             clip: true
-                            spacing: 2
-                            model: ListModel { id: terminalModel }
                             boundsBehavior: Flickable.StopAtBounds
 
                             ScrollBar.vertical: ScrollBar {
@@ -1132,28 +1152,79 @@ Window {
                             }
 
                             delegate: Item {
-                                width: terminalView.width - 16
-                                height: Math.max(dataText.contentHeight, 18)
+                                id: entryDelegate
+                                width: terminalView.width
+                                height: dataRow.height + 4
+
+                                required property int index
+                                required property var timestamp
+                                required property var msgText
+                                required property var hexData
+                                required property var type
+                                required property var entryIndex
+
+                                property color resolvedColor: {
+                                    switch (String(type)) {
+                                    case "rx":     return root.colorAccent
+                                    case "tx":     return root.colorAccentTertiary
+                                    case "system": return root.colorAccentSecondary
+                                    case "error":  return root.colorDestructive
+                                    default:       return root.colorFg
+                                    }
+                                }
 
                                 property bool isSelected: {
                                     root.selectionVersion
-                                    return root.selectedSet.hasOwnProperty(model.entryIndex)
+                                    return root.selectedSet.hasOwnProperty(entryIndex)
                                 }
 
-                                // Selection highlight
+                                // Selection highlight background
                                 Rectangle {
                                     anchors.fill: parent
-                                    anchors.margins: -2
-                                    color: parent.isSelected ? root.colorAccent : "transparent"
-                                    opacity: 0.1
+                                    color: entryDelegate.isSelected
+                                        ? Qt.rgba(root.colorAccent.r, root.colorAccent.g, root.colorAccent.b, 0.15)
+                                        : "transparent"
                                 }
-                                Rectangle {
-                                    anchors.fill: parent
-                                    anchors.margins: -2
-                                    color: "transparent"
-                                    border.color: root.colorAccent
-                                    border.width: parent.isSelected ? 1 : 0
-                                    opacity: 0.3
+
+                                Row {
+                                    id: dataRow
+                                    x: 4
+                                    y: 2
+                                    width: entryDelegate.width - 8
+                                    spacing: 6
+
+                                    // Timestamp
+                                    Text {
+                                        visible: root.showTimestamp
+                                        text: entryDelegate.timestamp || ""
+                                        font.family: root.fontMono
+                                        font.pixelSize: 12
+                                        color: root.colorMutedFg
+                                    }
+
+                                    // Prefix + Data (RichText for keyword highlighting)
+                                    Text {
+                                        text: {
+                                            root.keywordRevision  // re-evaluate on keyword change
+                                            var prefix = ""
+                                            switch (String(entryDelegate.type)) {
+                                            case "rx":     prefix = "RX&gt; "; break
+                                            case "tx":     prefix = "TX&gt; "; break
+                                            case "system": prefix = "SYS&gt; "; break
+                                            case "error":  prefix = "ERR&gt; "; break
+                                            default:       prefix = "&gt; "
+                                            }
+                                            var textData = (root.hexDisplayMode && entryDelegate.hexData !== "")
+                                                ? entryDelegate.hexData : entryDelegate.msgText
+                                            return prefix + highlightText(String(textData))
+                                        }
+                                        textFormat: Text.RichText
+                                        font.family: root.fontMono
+                                        font.pixelSize: 12
+                                        color: entryDelegate.resolvedColor
+                                        wrapMode: Text.WrapAnywhere
+                                        width: parent.width - x
+                                    }
                                 }
 
                                 MouseArea {
@@ -1162,78 +1233,32 @@ Window {
                                     onClicked: function(mouse) {
                                         if (mouse.button === Qt.RightButton) {
                                             terminalContextMenu.popup()
+                                            return
+                                        }
+                                        if (mouse.modifiers & Qt.ShiftModifier && root.lastClickedRow >= 0) {
+                                            selectRange(root.lastClickedRow, entryDelegate.index)
+                                        } else if (mouse.modifiers & Qt.ControlModifier) {
+                                            toggleSelection(entryDelegate.entryIndex)
+                                            root.lastClickedRow = entryDelegate.index
                                         } else {
-                                            toggleSelection(model.entryIndex, mouse.modifiers & Qt.ControlModifier)
+                                            selectOnly(entryDelegate.entryIndex)
+                                            root.lastClickedRow = entryDelegate.index
                                         }
                                     }
                                 }
-
-                                Row {
-                                    anchors.fill: parent
-                                    spacing: 8
-
-                                    // Timestamp
-                                    Text {
-                                        id: tsText
-                                        visible: root.showTimestamp
-                                        text: model.timestamp
-                                        font.family: root.fontMono
-                                        font.pixelSize: 12
-                                        color: root.colorMutedFg
-                                        width: visible ? 90 : 0
-                                        anchors.top: parent.top
-                                    }
-
-                                    // Direction prefix
-                                    Text {
-                                        id: prefixText
-                                        text: {
-                                            switch (model.type) {
-                                            case "rx":     return "RX>"
-                                            case "tx":     return "TX>"
-                                            case "system": return "SYS>"
-                                            case "error":  return "ERR>"
-                                            default:       return ">"
-                                            }
-                                        }
-                                        font.family: root.fontMono
-                                        font.pixelSize: 12
-                                        font.bold: true
-                                        color: model.msgColor
-                                        width: 36
-                                        anchors.top: parent.top
-                                    }
-
-                                    // Data content with keyword highlighting
-                                    Text {
-                                        id: dataText
-                                        text: {
-                                            root.keywordRevision
-                                            var raw = root.hexDisplayMode && model.hexData !== "" ? model.hexData : model.data
-                                            return highlightText(raw)
-                                        }
-                                        textFormat: Text.RichText
-                                        font.family: root.fontMono
-                                        font.pixelSize: 12
-                                        color: root.colorFg
-                                        width: parent.width - tsText.width - prefixText.width - 24
-                                        wrapMode: Text.WrapAnywhere
-                                        anchors.top: parent.top
-                                    }
-                                }
                             }
+                        }
 
-                            // Empty state
-                            Text {
-                                anchors.centerIn: parent
-                                visible: terminalModel.count === 0
-                                text: "AWAITING DATA STREAM..."
-                                font.family: root.fontMono
-                                font.pixelSize: 13
-                                font.letterSpacing: 2
-                                color: root.colorMutedFg
-                                opacity: 0.5
-                            }
+                        // Empty state
+                        Text {
+                            anchors.centerIn: parent
+                            visible: terminalModel.count === 0
+                            text: "AWAITING DATA STREAM..."
+                            font.family: root.fontMono
+                            font.pixelSize: 13
+                            font.letterSpacing: 2
+                            color: root.colorMutedFg
+                            opacity: 0.5
                         }
 
                         // Scanline overlay on terminal
@@ -1511,21 +1536,11 @@ Window {
 
     // ── Entry & Filter ──────────────────────────────────────────
     function addTerminalEntry(timestamp, data, hexData, type) {
-        var color
-        switch (type) {
-        case "rx":     color = root.colorAccent.toString(); break
-        case "tx":     color = root.colorAccentTertiary.toString(); break
-        case "system": color = root.colorAccentSecondary.toString(); break
-        case "error":  color = root.colorDestructive.toString(); break
-        default:       color = root.colorFg.toString()
-        }
-
         var entry = {
             timestamp: timestamp,
-            data: data,
+            msgText: data,
             hexData: hexData || "",
             type: type,
-            msgColor: color,
             entryIndex: root.terminalEntries.length
         }
 
@@ -1535,10 +1550,9 @@ Window {
 
         if (passesFilter(entry)) {
             terminalModel.append(entry)
+            if (root.autoScroll)
+                terminalView.positionViewAtEnd()
         }
-
-        if (root.autoScroll)
-            terminalView.positionViewAtEnd()
     }
 
     function passesFilter(entry) {
@@ -1546,7 +1560,7 @@ Window {
         if (entry.type === "system" || entry.type === "error")
             return true
 
-        var text = entry.data.toLowerCase()
+        var text = entry.msgText.toLowerCase()
 
         // Whitelist: if any whitelist entries exist, data must contain at least one
         if (whitelistModel.count > 0) {
@@ -1608,16 +1622,30 @@ Window {
     }
 
     // ── Selection ───────────────────────────────────────────────
-    function toggleSelection(entryIdx, ctrlHeld) {
+    function selectOnly(entryIdx) {
+        var s = {}
+        s[entryIdx] = true
+        root.selectedSet = s
+        root.selectionVersion++
+    }
+
+    function toggleSelection(entryIdx) {
         var s = root.selectedSet
-        if (ctrlHeld) {
-            if (s.hasOwnProperty(entryIdx))
-                delete s[entryIdx]
-            else
-                s[entryIdx] = true
-        } else {
-            s = {}
+        if (s.hasOwnProperty(entryIdx))
+            delete s[entryIdx]
+        else
             s[entryIdx] = true
+        root.selectedSet = s
+        root.selectionVersion++
+    }
+
+    function selectRange(fromRow, toRow) {
+        var lo = Math.min(fromRow, toRow)
+        var hi = Math.max(fromRow, toRow)
+        var s = root.selectedSet
+        for (var i = lo; i <= hi; i++) {
+            var entry = terminalModel.get(i)
+            if (entry) s[entry.entryIndex] = true
         }
         root.selectedSet = s
         root.selectionVersion++
@@ -1626,6 +1654,7 @@ Window {
     function clearSelection() {
         root.selectedSet = {}
         root.selectionVersion++
+        root.lastClickedRow = -1
     }
 
     function selectAllEntries() {
@@ -1635,6 +1664,23 @@ Window {
         }
         root.selectedSet = s
         root.selectionVersion++
+    }
+
+    function clearTerminal() {
+        terminalModel.clear()
+        root.terminalEntries = []
+        clearSelection()
+    }
+
+    function copySelectedEntries() {
+        var lines = []
+        for (var i = 0; i < root.terminalEntries.length; i++) {
+            if (root.selectedSet.hasOwnProperty(i)) {
+                lines.push(buildEntryText(root.terminalEntries[i]))
+            }
+        }
+        if (lines.length > 0)
+            copyToClipboard(lines.join("\n"))
     }
 
     // ── Copy ────────────────────────────────────────────────────
@@ -1651,7 +1697,7 @@ Window {
         default:       line += "> "
         }
 
-        line += (root.hexDisplayMode && entry.hexData !== "") ? entry.hexData : entry.data
+        line += (root.hexDisplayMode && entry.hexData !== "") ? entry.hexData : entry.msgText
         return line
     }
 
@@ -1664,17 +1710,6 @@ Window {
         // Show feedback in terminal
         var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
         addTerminalEntry(ts, "Copied to clipboard (" + text.split("\n").length + " lines)", "", "system")
-    }
-
-    function copySelectedEntries() {
-        var lines = []
-        for (var i = 0; i < root.terminalEntries.length; i++) {
-            if (root.selectedSet.hasOwnProperty(i)) {
-                lines.push(buildEntryText(root.terminalEntries[i]))
-            }
-        }
-        if (lines.length > 0)
-            copyToClipboard(lines.join("\n"))
     }
 
     function copyAllEntries() {
