@@ -106,6 +106,7 @@ Window {
     property bool showTimestamp: true
     property bool hexSendMode: false
     property int terminalFontSize: 12
+    property real uiScale: 1.0
     property bool showLineNumbers: false
     property string lastClickedRowText: ""
 
@@ -193,6 +194,31 @@ Window {
         context: Qt.ApplicationShortcut
         onActivated: root.terminalFontSize = 12
     }
+    Shortcut {
+        sequence: "Ctrl+Shift+="
+        context: Qt.ApplicationShortcut
+        onActivated: if (root.uiScale < 2.0) root.uiScale = Math.round((root.uiScale + 0.1) * 10) / 10
+    }
+    Shortcut {
+        sequence: "Ctrl+Shift+-"
+        context: Qt.ApplicationShortcut
+        onActivated: if (root.uiScale > 0.6) root.uiScale = Math.round((root.uiScale - 0.1) * 10) / 10
+    }
+    Shortcut {
+        sequence: "Ctrl+Shift+0"
+        context: Qt.ApplicationShortcut
+        onActivated: root.uiScale = 1.0
+    }
+
+    // ── Scaled Content Wrapper ──────────────────────────────────
+    // All visual content is inside this scaled Item.
+    // Resize handles stay outside so they remain at actual window edges.
+    Item {
+        id: contentRoot
+        width: root.width / root.uiScale
+        height: root.height / root.uiScale
+        scale: root.uiScale
+        transformOrigin: Item.TopLeft
 
     // ══════════════════════════════════════════════════════════════
     // BACKGROUND — circuit grid pattern
@@ -220,6 +246,7 @@ Window {
             target: root
             function onWidthChanged()  { bgGridCanvas.requestPaint() }
             function onHeightChanged() { bgGridCanvas.requestPaint() }
+            function onUiScaleChanged() { bgGridCanvas.requestPaint() }
         }
     }
 
@@ -230,8 +257,8 @@ Window {
             z: 2
             readonly property bool isRight:  index % 2 === 1
             readonly property bool isBottom: index >= 2
-            x: isRight  ? root.width - 30 : 0
-            y: isBottom ? root.height - 30 : 0
+            x: isRight  ? contentRoot.width - 30 : 0
+            y: isBottom ? contentRoot.height - 30 : 0
             Rectangle {
                 width: 30; height: 1
                 color: root.colorAccent; opacity: 0.3
@@ -1014,6 +1041,16 @@ Window {
                             }
 
                             Text {
+                                visible: root.uiScale !== 1.0
+                                text: "[" + Math.round(root.uiScale * 100) + "%]"
+                                font.family: root.fontMono
+                                font.pixelSize: 10
+                                font.letterSpacing: 1
+                                font.bold: true
+                                color: root.colorAccentTertiary
+                            }
+
+                            Text {
                                 text: terminalModel.count + " ENTRIES"
                                 font.family: root.fontMono
                                 font.pixelSize: 10
@@ -1603,7 +1640,13 @@ Window {
                                         }
                                     }
                                     onWheel: function(wheel) {
-                                        if (wheel.modifiers & Qt.ControlModifier) {
+                                        if ((wheel.modifiers & Qt.ControlModifier) && (wheel.modifiers & Qt.ShiftModifier)) {
+                                            if (wheel.angleDelta.y > 0 && root.uiScale < 2.0)
+                                                root.uiScale = Math.round((root.uiScale + 0.1) * 10) / 10
+                                            else if (wheel.angleDelta.y < 0 && root.uiScale > 0.6)
+                                                root.uiScale = Math.round((root.uiScale - 0.1) * 10) / 10
+                                            wheel.accepted = true
+                                        } else if (wheel.modifiers & Qt.ControlModifier) {
                                             if (wheel.angleDelta.y > 0 && root.terminalFontSize < 24)
                                                 root.terminalFontSize++
                                             else if (wheel.angleDelta.y < 0 && root.terminalFontSize > 8)
@@ -1866,8 +1909,11 @@ Window {
             target: root
             function onWidthChanged()  { scanlineCanvas.requestPaint() }
             function onHeightChanged() { scanlineCanvas.requestPaint() }
+            function onUiScaleChanged() { scanlineCanvas.requestPaint() }
         }
     }
+
+    } // contentRoot
 
     // ══════════════════════════════════════════════════════════════
     // RESIZE HANDLES (frameless window)
