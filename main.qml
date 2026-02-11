@@ -119,6 +119,7 @@ Window {
     property string lastClickedRowText: ""
     property string exportMode: "filtered"
     property bool settingsLoaded: false
+    property bool leftPanelCollapsed: false
 
     // ── Terminal & Keyword State ─────────────────────────────────
     property var terminalEntries: []
@@ -218,6 +219,16 @@ Window {
         sequence: "Ctrl+Shift+0"
         context: Qt.ApplicationShortcut
         onActivated: root.uiScale = 1.0
+    }
+    Shortcut {
+        sequence: "Space"
+        context: Qt.ApplicationShortcut
+        onActivated: {
+            // Don't trigger when a text input has focus
+            if (sendInput.activeFocus || searchInput.activeFocus || filterInput.activeFocus)
+                return
+            toggleConnection()
+        }
     }
 
     // ── Scaled Content Wrapper ──────────────────────────────────
@@ -737,11 +748,18 @@ Window {
             // LEFT PANEL — Connection Settings
             // ════════════════════════════════════════════════════════
             Rectangle {
-                Layout.preferredWidth: 280
+                id: leftPanel
+                Layout.preferredWidth: root.leftPanelCollapsed ? 0 : 280
                 Layout.fillHeight: true
                 color: root.colorCard
                 border.color: root.colorBorder
-                border.width: 1
+                border.width: root.leftPanelCollapsed ? 0 : 1
+                clip: true
+                visible: Layout.preferredWidth > 0
+
+                Behavior on Layout.preferredWidth {
+                    NumberAnimation { duration: 200; easing.type: Easing.OutCubic }
+                }
 
                 Flickable {
                     anchors.fill: parent
@@ -819,59 +837,10 @@ Window {
                             onCurrentIndexChanged: if (root.settingsLoaded) connectionSettings.lastBaudIndex = currentIndex
                         }
 
-                        // DATA BITS
-                        Text {
-                            text: "DATA BITS"
-                            font.family: root.fontMono; font.pixelSize: 10
-                            font.letterSpacing: 2; color: root.colorMutedFg
-                        }
-                        CyberComboBox {
-                            id: dataBitsCombo
-                            Layout.fillWidth: true
-                            model: root.dataBitsList
-                            currentIndex: 0  // default 8
-                            accentColor: root.colorAccent
-                            cardColor: root.colorCard; borderColor: root.colorBorder
-                            fgColor: root.colorFg; bgColor: root.colorBg
-                            mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
-                            onCurrentIndexChanged: if (root.settingsLoaded) connectionSettings.lastDataBitsIndex = currentIndex
-                        }
-
-                        // STOP BITS
-                        Text {
-                            text: "STOP BITS"
-                            font.family: root.fontMono; font.pixelSize: 10
-                            font.letterSpacing: 2; color: root.colorMutedFg
-                        }
-                        CyberComboBox {
-                            id: stopBitsCombo
-                            Layout.fillWidth: true
-                            model: root.stopBitsList
-                            currentIndex: 0  // default 1
-                            accentColor: root.colorAccent
-                            cardColor: root.colorCard; borderColor: root.colorBorder
-                            fgColor: root.colorFg; bgColor: root.colorBg
-                            mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
-                            onCurrentIndexChanged: if (root.settingsLoaded) connectionSettings.lastStopBitsIndex = currentIndex
-                        }
-
-                        // PARITY
-                        Text {
-                            text: "PARITY"
-                            font.family: root.fontMono; font.pixelSize: 10
-                            font.letterSpacing: 2; color: root.colorMutedFg
-                        }
-                        CyberComboBox {
-                            id: parityCombo
-                            Layout.fillWidth: true
-                            model: root.parityList
-                            currentIndex: 0  // default None
-                            accentColor: root.colorAccent
-                            cardColor: root.colorCard; borderColor: root.colorBorder
-                            fgColor: root.colorFg; bgColor: root.colorBg
-                            mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
-                            onCurrentIndexChanged: if (root.settingsLoaded) connectionSettings.lastParityIndex = currentIndex
-                        }
+                        // Hidden combos — keep IDs for compatibility
+                        CyberComboBox { id: dataBitsCombo; visible: false; model: root.dataBitsList; currentIndex: 0 }
+                        CyberComboBox { id: stopBitsCombo; visible: false; model: root.stopBitsList; currentIndex: 0 }
+                        CyberComboBox { id: parityCombo; visible: false; model: root.parityList; currentIndex: 0 }
 
                         Item { height: 4 }
 
@@ -884,32 +853,7 @@ Window {
                                 : serialManager.connected ? root.colorDestructive : root.colorAccent
                             bgColor: root.colorBg; borderMutedColor: root.colorBorder
                             glowing: serialManager.connected || serialManager.reconnecting
-                            onClicked: {
-                                if (serialManager.reconnecting) {
-                                    // Clicking during reconnect = cancel reconnect
-                                    serialManager.disconnectPort()
-                                } else if (serialManager.connected) {
-                                    serialManager.disconnectPort()
-                                } else {
-                                    if (portCombo.currentIndex < 0) {
-                                        addTerminalEntry("--:--:--.---", "No port selected", "", "error")
-                                        return
-                                    }
-                                    var ok = serialManager.connectToPort(
-                                        portCombo.currentText,
-                                        parseInt(baudCombo.currentText),
-                                        parseInt(dataBitsCombo.currentText),
-                                        parseInt(stopBitsCombo.currentText),
-                                        parityCombo.currentIndex
-                                    )
-                                    if (!ok) {
-                                        addTerminalEntry(
-                                            Qt.formatDateTime(new Date(), "HH:mm:ss.zzz"),
-                                            "Failed to open port", "", "error"
-                                        )
-                                    }
-                                }
-                            }
+                            onClicked: toggleConnection()
                         }
 
                         Item { height: 8 }
@@ -1050,15 +994,15 @@ Window {
                             anchors.rightMargin: 12
                             spacing: 8
 
-                            // Traffic light dots
-                            Row {
-                                spacing: 6
-                                Repeater {
-                                    model: ["#ff3366", "#ffaa00", "#00ff88"]
-                                    Rectangle {
-                                        width: 10; height: 10; radius: 5
-                                        color: modelData; opacity: 0.8
-                                    }
+                            // Toggle left panel button
+                            Text {
+                                text: root.leftPanelCollapsed ? "\u25b6" : "\u25c0"
+                                font.pixelSize: 12
+                                color: root.colorMutedFg
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.leftPanelCollapsed = !root.leftPanelCollapsed
                                 }
                             }
 
@@ -1504,7 +1448,7 @@ Window {
                                                     cursorShape: Qt.PointingHandCursor
                                                     onClicked: {
                                                         whitelistModel.remove(index)
-                                                        rebuildFilteredModel()
+                                                        root.rebuildFilteredModel()
                                                         settingsSaveTimer.restart()
                                                     }
                                                 }
@@ -1548,7 +1492,7 @@ Window {
                                                     cursorShape: Qt.PointingHandCursor
                                                     onClicked: {
                                                         blacklistModel.remove(index)
-                                                        rebuildFilteredModel()
+                                                        root.rebuildFilteredModel()
                                                         settingsSaveTimer.restart()
                                                     }
                                                 }
@@ -1577,16 +1521,46 @@ Window {
                             clip: true
                             boundsBehavior: Flickable.StopAtBounds
 
-                            // Auto-scroll detection: disable when user scrolls up, re-enable at bottom
-                            property bool atBottom: true
+                            // Auto-scroll rules:
+                            //   1. Scroll to bottom → enable auto-scroll
+                            //   2. Any upward scroll → disable auto-scroll
+                            property real _dragStartY: 0
+
+                            function isAtBottom() {
+                                if (terminalModel.count === 0) return true
+                                var lastItem = itemAtIndex(terminalModel.count - 1)
+                                if (!lastItem) return false
+                                return (lastItem.y + lastItem.height) <= (contentY + height + 2)
+                            }
+
+                            // Immediately re-enable auto-scroll when reaching bottom
                             onContentYChanged: {
-                                if (!moving) return
-                                var bottom = (contentHeight - contentY - height) < 30
-                                if (bottom && !root.autoScroll) {
+                                if (!root.autoScroll && isAtBottom())
                                     root.autoScroll = true
-                                } else if (!bottom && root.autoScroll) {
+                            }
+
+                            // Drag / flick upward → disable auto-scroll
+                            onMovingChanged: {
+                                if (moving) {
+                                    _dragStartY = contentY
+                                } else if (contentY < _dragStartY) {
                                     root.autoScroll = false
                                 }
+                            }
+
+                            // Re-position to bottom after scale/font changes when auto-scroll is active
+                            Timer {
+                                id: scaleRepositionTimer
+                                interval: 80
+                                onTriggered: {
+                                    if (root.autoScroll)
+                                        terminalView.positionViewAtEnd()
+                                }
+                            }
+                            Connections {
+                                target: root
+                                function onUiScaleChanged()          { scaleRepositionTimer.restart() }
+                                function onTerminalFontSizeChanged() { scaleRepositionTimer.restart() }
                             }
 
                             ScrollBar.vertical: ScrollBar {
@@ -1746,6 +1720,8 @@ Window {
                                             wheel.accepted = true
                                         } else {
                                             wheel.accepted = false
+                                            if (wheel.angleDelta.y > 0)
+                                                root.autoScroll = false
                                         }
                                     }
                                 }
@@ -2426,6 +2402,30 @@ Window {
         root.selectionVersion++
     }
 
+    function toggleConnection() {
+        if (serialManager.reconnecting) {
+            serialManager.disconnectPort()
+        } else if (serialManager.connected) {
+            serialManager.disconnectPort()
+        } else {
+            if (portCombo.currentIndex < 0) {
+                addTerminalEntry("--:--:--.---", "No port selected", "", "error")
+                return
+            }
+            var ok = serialManager.connectToPort(
+                portCombo.currentText,
+                parseInt(baudCombo.currentText),
+                8, 1, 0
+            )
+            if (!ok) {
+                addTerminalEntry(
+                    Qt.formatDateTime(new Date(), "HH:mm:ss.zzz"),
+                    "Failed to open port", "", "error"
+                )
+            }
+        }
+    }
+
     function clearTerminal() {
         terminalModel.clear()
         root.terminalEntries = []
@@ -2587,6 +2587,7 @@ Window {
         property alias uiScale: root.uiScale
         property alias hexSendMode: root.hexSendMode
         property alias maxBufferLines: root.maxBufferLines
+        property alias leftPanelCollapsed: root.leftPanelCollapsed
     }
 
     Settings {

@@ -11,7 +11,7 @@ setlocal enabledelayedexpansion
 
 :: --- Script directory as base (where this .bat lives) ---
 set SCRIPT_DIR=%~dp0
-set APP_NAME=appUARTPro.exe
+set APP_NAME=UARTPro.exe
 
 :: --- Auto-detect build directory (prefer Release, fallback Debug) ---
 :: Scan build\ for subdirectories that contain both CMakeCache.txt and the exe
