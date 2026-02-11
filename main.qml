@@ -105,6 +105,9 @@ Window {
     property bool autoScroll: true
     property bool showTimestamp: true
     property bool hexSendMode: false
+    property int terminalFontSize: 12
+    property bool showLineNumbers: false
+    property string lastClickedRowText: ""
 
     // ── Terminal & Keyword State ─────────────────────────────────
     property var terminalEntries: []
@@ -174,6 +177,21 @@ Window {
                 root.autoScroll = root.autoScrollBeforeSearch
             }
         }
+    }
+    Shortcut {
+        sequence: "Ctrl+="
+        context: Qt.ApplicationShortcut
+        onActivated: if (root.terminalFontSize < 24) root.terminalFontSize++
+    }
+    Shortcut {
+        sequence: "Ctrl+-"
+        context: Qt.ApplicationShortcut
+        onActivated: if (root.terminalFontSize > 8) root.terminalFontSize--
+    }
+    Shortcut {
+        sequence: "Ctrl+0"
+        context: Qt.ApplicationShortcut
+        onActivated: root.terminalFontSize = 12
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -307,6 +325,53 @@ Window {
                 color: parent.hovered ? root.colorMuted : "transparent"
             }
         }
+
+        MenuSeparator {
+            contentItem: Rectangle { implicitHeight: 1; color: root.colorBorder }
+        }
+
+        MenuItem {
+            text: "  + HIGHLIGHT THIS"
+            enabled: root.lastClickedRowText !== ""
+            onTriggered: addKeyword(root.lastClickedRowText)
+            contentItem: Text {
+                text: parent.text
+                font.family: root.fontMono; font.pixelSize: 11
+                font.letterSpacing: 1
+                color: parent.enabled ? "#ffaa00" : root.colorMutedFg
+            }
+            background: Rectangle {
+                color: parent.hovered ? root.colorMuted : "transparent"
+            }
+        }
+        MenuItem {
+            text: "  + ADD TO WHITELIST"
+            enabled: root.lastClickedRowText !== ""
+            onTriggered: addWhitelist(root.lastClickedRowText)
+            contentItem: Text {
+                text: parent.text
+                font.family: root.fontMono; font.pixelSize: 11
+                font.letterSpacing: 1
+                color: parent.enabled ? root.colorAccent : root.colorMutedFg
+            }
+            background: Rectangle {
+                color: parent.hovered ? root.colorMuted : "transparent"
+            }
+        }
+        MenuItem {
+            text: "  \u2212 ADD TO BLACKLIST"
+            enabled: root.lastClickedRowText !== ""
+            onTriggered: addBlacklist(root.lastClickedRowText)
+            contentItem: Text {
+                text: parent.text
+                font.family: root.fontMono; font.pixelSize: 11
+                font.letterSpacing: 1
+                color: parent.enabled ? root.colorDestructive : root.colorMutedFg
+            }
+            background: Rectangle {
+                color: parent.hovered ? root.colorMuted : "transparent"
+            }
+        }
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -345,7 +410,7 @@ Window {
 
                 // Glitch title
                 Item {
-                    Layout.preferredWidth: 260
+                    Layout.preferredWidth: 160
                     Layout.fillHeight: true
 
                     // Magenta ghost
@@ -401,13 +466,15 @@ Window {
                     }
                 }
 
-                // Subtitle
+                // Subtitle — dynamic: shows port info when connected
                 Text {
-                    text: "// SERIAL TERMINAL INTERFACE"
+                    text: serialManager.connected
+                          ? (portCombo.currentText.split(" - ")[0] + " @ " + baudCombo.currentText)
+                          : "// SERIAL TERMINAL INTERFACE"
                     font.family: root.fontMono
                     font.pixelSize: 10
                     font.letterSpacing: 2
-                    color: root.colorMutedFg
+                    color: serialManager.connected ? root.colorAccent : root.colorMutedFg
                 }
 
                 Item { Layout.fillWidth: true }
@@ -806,226 +873,12 @@ Window {
                             bgColor: root.colorBg; borderMutedColor: root.colorBorder; mutedFgColor: root.colorMutedFg
                             onCheckedChanged: root.showTimestamp = checked
                         }
-
-                        Item { height: 8 }
-
-                        Rectangle { Layout.fillWidth: true; height: 1; color: root.colorBorder }
-
-                        // ── Section: KEYWORDS ──────────────────────────
-                        Text {
-                            text: "> KEYWORDS"
-                            font.family: root.fontMono; font.pixelSize: 11
-                            font.letterSpacing: 2; font.bold: true
-                            color: "#ffaa00"
-                        }
-
-                        Rectangle { Layout.fillWidth: true; height: 1; color: root.colorBorder }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 4
-                            CyberTextField {
-                                id: kwInput
-                                Layout.fillWidth: true
-                                placeholderText: "keyword..."
-                                accentColor: "#ffaa00"
-                                cardColor: root.colorCard; borderColor: root.colorBorder
-                                bgColor: root.colorBg; mutedFgColor: root.colorMutedFg
-                                font.pixelSize: 11
-                            }
-                            CyberButton {
-                                Layout.preferredWidth: 40
-                                text: "+"
-                                accentColor: "#ffaa00"
-                                bgColor: root.colorBg; borderMutedColor: root.colorBorder
-                                font.pixelSize: 14
-                                onClicked: addKeyword(kwInput.text)
-                            }
-                        }
-
-                        // Keyword list
-                        Repeater {
-                            model: keywordModel
-                            delegate: RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 6
-                                Rectangle {
-                                    width: 12; height: 12
-                                    color: model.color
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: model.text
-                                    font.family: root.fontMono; font.pixelSize: 11
-                                    color: model.color
-                                    elide: Text.ElideRight
-                                }
-                                Text {
-                                    text: "✕"
-                                    font.family: root.fontMono; font.pixelSize: 12
-                                    font.bold: true
-                                    color: root.colorDestructive
-                                    opacity: kwDelMa.containsMouse ? 1.0 : 0.5
-                                    MouseArea {
-                                        id: kwDelMa
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: {
-                                            root.keywordRevision++
-                                            keywordModel.remove(index)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Item { height: 4 }
-
-                        Rectangle { Layout.fillWidth: true; height: 1; color: root.colorBorder }
-
-                        // ── Section: WHITELIST ─────────────────────────
-                        Text {
-                            text: "> WHITELIST"
-                            font.family: root.fontMono; font.pixelSize: 11
-                            font.letterSpacing: 2; font.bold: true
-                            color: root.colorAccent
-                        }
-
-                        Rectangle { Layout.fillWidth: true; height: 1; color: root.colorBorder }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 4
-                            CyberTextField {
-                                id: wlInput
-                                Layout.fillWidth: true
-                                placeholderText: "include..."
-                                accentColor: root.colorAccent
-                                cardColor: root.colorCard; borderColor: root.colorBorder
-                                bgColor: root.colorBg; mutedFgColor: root.colorMutedFg
-                                font.pixelSize: 11
-                            }
-                            CyberButton {
-                                Layout.preferredWidth: 40
-                                text: "+"
-                                accentColor: root.colorAccent
-                                bgColor: root.colorBg; borderMutedColor: root.colorBorder
-                                font.pixelSize: 14
-                                onClicked: addWhitelist(wlInput.text)
-                            }
-                        }
-
-                        Repeater {
-                            model: whitelistModel
-                            delegate: RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 6
-                                Text {
-                                    text: "+"
-                                    font.family: root.fontMono; font.pixelSize: 12
-                                    font.bold: true
-                                    color: root.colorAccent
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: model.text
-                                    font.family: root.fontMono; font.pixelSize: 11
-                                    color: root.colorAccent
-                                    elide: Text.ElideRight
-                                }
-                                Text {
-                                    text: "✕"
-                                    font.family: root.fontMono; font.pixelSize: 12
-                                    font.bold: true
-                                    color: root.colorDestructive
-                                    opacity: wlDelMa.containsMouse ? 1.0 : 0.5
-                                    MouseArea {
-                                        id: wlDelMa
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: {
-                                            whitelistModel.remove(index)
-                                            rebuildFilteredModel()
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        Item { height: 4 }
-
-                        Rectangle { Layout.fillWidth: true; height: 1; color: root.colorBorder }
-
-                        // ── Section: BLACKLIST ─────────────────────────
-                        Text {
-                            text: "> BLACKLIST"
-                            font.family: root.fontMono; font.pixelSize: 11
-                            font.letterSpacing: 2; font.bold: true
-                            color: root.colorDestructive
-                        }
-
-                        Rectangle { Layout.fillWidth: true; height: 1; color: root.colorBorder }
-
-                        RowLayout {
-                            Layout.fillWidth: true
-                            spacing: 4
-                            CyberTextField {
-                                id: blInput
-                                Layout.fillWidth: true
-                                placeholderText: "exclude..."
-                                accentColor: root.colorDestructive
-                                cardColor: root.colorCard; borderColor: root.colorBorder
-                                bgColor: root.colorBg; mutedFgColor: root.colorMutedFg
-                                font.pixelSize: 11
-                            }
-                            CyberButton {
-                                Layout.preferredWidth: 40
-                                text: "+"
-                                accentColor: root.colorDestructive
-                                bgColor: root.colorBg; borderMutedColor: root.colorBorder
-                                font.pixelSize: 14
-                                onClicked: addBlacklist(blInput.text)
-                            }
-                        }
-
-                        Repeater {
-                            model: blacklistModel
-                            delegate: RowLayout {
-                                Layout.fillWidth: true
-                                spacing: 6
-                                Text {
-                                    text: "−"
-                                    font.family: root.fontMono; font.pixelSize: 14
-                                    font.bold: true
-                                    color: root.colorDestructive
-                                }
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: model.text
-                                    font.family: root.fontMono; font.pixelSize: 11
-                                    color: root.colorDestructive
-                                    elide: Text.ElideRight
-                                }
-                                Text {
-                                    text: "✕"
-                                    font.family: root.fontMono; font.pixelSize: 12
-                                    font.bold: true
-                                    color: root.colorDestructive
-                                    opacity: blDelMa.containsMouse ? 1.0 : 0.5
-                                    MouseArea {
-                                        id: blDelMa
-                                        anchors.fill: parent
-                                        hoverEnabled: true
-                                        cursorShape: Qt.PointingHandCursor
-                                        onClicked: {
-                                            blacklistModel.remove(index)
-                                            rebuildFilteredModel()
-                                        }
-                                    }
-                                }
-                            }
+                        CyberCheckBox {
+                            text: "LINE NUMBERS"
+                            checked: root.showLineNumbers
+                            accentColor: root.colorAccentTertiary
+                            bgColor: root.colorBg; borderMutedColor: root.colorBorder; mutedFgColor: root.colorMutedFg
+                            onCheckedChanged: root.showLineNumbers = checked
                         }
 
                         Item { height: 8 }
@@ -1048,20 +901,6 @@ Window {
                             accentColor: root.colorAccentTertiary
                             bgColor: root.colorBg; borderMutedColor: root.colorBorder
                             onClicked: serialManager.refreshPorts()
-                        }
-                        CyberButton {
-                            Layout.fillWidth: true
-                            text: "COPY LOG"
-                            accentColor: "#ffaa00"
-                            bgColor: root.colorBg; borderMutedColor: root.colorBorder
-                            onClicked: copyAllEntries()
-                        }
-                        CyberButton {
-                            Layout.fillWidth: true
-                            text: "CLEAR TERMINAL"
-                            accentColor: root.colorAccentSecondary
-                            bgColor: root.colorBg; borderMutedColor: root.colorBorder
-                            onClicked: clearTerminal()
                         }
 
                         Item { Layout.fillHeight: true }
@@ -1157,6 +996,16 @@ Window {
 
                             Text {
                                 text: root.hexDisplayMode ? "[HEX]" : "[ASCII]"
+                                font.family: root.fontMono
+                                font.pixelSize: 10
+                                font.letterSpacing: 1
+                                font.bold: true
+                                color: root.colorAccentTertiary
+                            }
+
+                            Text {
+                                visible: root.terminalFontSize !== 12
+                                text: "[" + root.terminalFontSize + "px]"
                                 font.family: root.fontMono
                                 font.pixelSize: 10
                                 font.letterSpacing: 1
@@ -1378,6 +1227,212 @@ Window {
 
                     Rectangle { Layout.fillWidth: true; height: root.searchBarVisible ? 1 : 0; color: root.colorBorder }
 
+                    // ── Filter Toolbar ─────────────────────────────
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: filterToolbarCol.implicitHeight
+                        color: root.colorCard
+                        visible: Layout.preferredHeight > 0
+
+                        ColumnLayout {
+                            id: filterToolbarCol
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.leftMargin: 8
+                            anchors.rightMargin: 8
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 4
+
+                            // Input row
+                            RowLayout {
+                                Layout.fillWidth: true
+                                Layout.topMargin: 6
+                                spacing: 4
+
+                                CyberComboBox {
+                                    id: filterTypeCombo
+                                    Layout.preferredWidth: 120
+                                    model: ["Highlight", "Whitelist", "Blacklist"]
+                                    currentIndex: 0
+                                    accentColor: filterTypeCombo.currentIndex === 0 ? "#ffaa00"
+                                               : filterTypeCombo.currentIndex === 1 ? root.colorAccent
+                                               : root.colorDestructive
+                                    cardColor: root.colorCard; borderColor: root.colorBorder
+                                    fgColor: root.colorFg; bgColor: root.colorBg
+                                    mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
+                                    font.pixelSize: 11
+                                }
+
+                                CyberTextField {
+                                    id: filterInput
+                                    Layout.fillWidth: true
+                                    placeholderText: filterTypeCombo.currentIndex === 0 ? "highlight keyword..."
+                                                   : filterTypeCombo.currentIndex === 1 ? "include filter..."
+                                                   : "exclude filter..."
+                                    accentColor: filterTypeCombo.currentIndex === 0 ? "#ffaa00"
+                                               : filterTypeCombo.currentIndex === 1 ? root.colorAccent
+                                               : root.colorDestructive
+                                    cardColor: root.colorCard; borderColor: root.colorBorder
+                                    bgColor: root.colorBg; mutedFgColor: root.colorMutedFg
+                                    font.pixelSize: 11
+
+                                    Keys.onReturnPressed: addFilterFromInput()
+                                    Keys.onEnterPressed: addFilterFromInput()
+                                }
+
+                                CyberButton {
+                                    Layout.preferredWidth: 40
+                                    text: "+"
+                                    accentColor: filterTypeCombo.currentIndex === 0 ? "#ffaa00"
+                                               : filterTypeCombo.currentIndex === 1 ? root.colorAccent
+                                               : root.colorDestructive
+                                    bgColor: root.colorBg; borderMutedColor: root.colorBorder
+                                    font.pixelSize: 14
+                                    onClicked: addFilterFromInput()
+                                }
+                            }
+
+                            // Chips area — only visible when there are chips
+                            Flow {
+                                Layout.fillWidth: true
+                                Layout.bottomMargin: 6
+                                spacing: 4
+                                visible: keywordModel.count > 0 || whitelistModel.count > 0 || blacklistModel.count > 0
+
+                                // Keyword chips
+                                Repeater {
+                                    model: keywordModel
+                                    delegate: Rectangle {
+                                        width: kwChipRow.implicitWidth + 16
+                                        height: 22
+                                        color: Qt.rgba(Qt.color(model.color).r, Qt.color(model.color).g, Qt.color(model.color).b, 0.15)
+                                        border.color: model.color
+                                        border.width: 1
+
+                                        Row {
+                                            id: kwChipRow
+                                            anchors.centerIn: parent
+                                            spacing: 4
+                                            Text {
+                                                text: model.text
+                                                font.family: root.fontMono; font.pixelSize: 10
+                                                color: model.color
+                                                anchors.verticalCenter: parent.verticalCenter
+                                            }
+                                            Text {
+                                                text: "\u2715"
+                                                font.family: root.fontMono; font.pixelSize: 9
+                                                font.bold: true
+                                                color: root.colorDestructive
+                                                opacity: kwChipMa.containsMouse ? 1.0 : 0.5
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                MouseArea {
+                                                    id: kwChipMa
+                                                    anchors.fill: parent
+                                                    anchors.margins: -4
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        root.keywordRevision++
+                                                        keywordModel.remove(index)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Whitelist chips
+                                Repeater {
+                                    model: whitelistModel
+                                    delegate: Rectangle {
+                                        width: wlChipRow.implicitWidth + 16
+                                        height: 22
+                                        color: Qt.rgba(root.colorAccent.r, root.colorAccent.g, root.colorAccent.b, 0.15)
+                                        border.color: root.colorAccent
+                                        border.width: 1
+
+                                        Row {
+                                            id: wlChipRow
+                                            anchors.centerIn: parent
+                                            spacing: 4
+                                            Text {
+                                                text: "+" + model.text
+                                                font.family: root.fontMono; font.pixelSize: 10
+                                                color: root.colorAccent
+                                                anchors.verticalCenter: parent.verticalCenter
+                                            }
+                                            Text {
+                                                text: "\u2715"
+                                                font.family: root.fontMono; font.pixelSize: 9
+                                                font.bold: true
+                                                color: root.colorDestructive
+                                                opacity: wlChipMa.containsMouse ? 1.0 : 0.5
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                MouseArea {
+                                                    id: wlChipMa
+                                                    anchors.fill: parent
+                                                    anchors.margins: -4
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        whitelistModel.remove(index)
+                                                        rebuildFilteredModel()
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Blacklist chips
+                                Repeater {
+                                    model: blacklistModel
+                                    delegate: Rectangle {
+                                        width: blChipRow.implicitWidth + 16
+                                        height: 22
+                                        color: Qt.rgba(root.colorDestructive.r, root.colorDestructive.g, root.colorDestructive.b, 0.15)
+                                        border.color: root.colorDestructive
+                                        border.width: 1
+
+                                        Row {
+                                            id: blChipRow
+                                            anchors.centerIn: parent
+                                            spacing: 4
+                                            Text {
+                                                text: "\u2212" + model.text
+                                                font.family: root.fontMono; font.pixelSize: 10
+                                                color: root.colorDestructive
+                                                anchors.verticalCenter: parent.verticalCenter
+                                            }
+                                            Text {
+                                                text: "\u2715"
+                                                font.family: root.fontMono; font.pixelSize: 9
+                                                font.bold: true
+                                                color: root.colorDestructive
+                                                opacity: blChipMa.containsMouse ? 1.0 : 0.5
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                MouseArea {
+                                                    id: blChipMa
+                                                    anchors.fill: parent
+                                                    anchors.margins: -4
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        blacklistModel.remove(index)
+                                                        rebuildFilteredModel()
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle { Layout.fillWidth: true; height: 1; color: root.colorBorder }
+
                     // Terminal output area
                     Item {
                         Layout.fillWidth: true
@@ -1484,12 +1539,22 @@ Window {
                                     width: entryDelegate.width - 8
                                     spacing: 6
 
+                                    // Line Number
+                                    Text {
+                                        visible: root.showLineNumbers
+                                        text: String(entryDelegate.entryIndex + 1).padStart(4, ' ')
+                                        font.family: root.fontMono
+                                        font.pixelSize: root.terminalFontSize
+                                        color: root.colorMutedFg
+                                        opacity: 0.5
+                                    }
+
                                     // Timestamp
                                     Text {
                                         visible: root.showTimestamp
                                         text: entryDelegate.timestamp || ""
                                         font.family: root.fontMono
-                                        font.pixelSize: 12
+                                        font.pixelSize: root.terminalFontSize
                                         color: root.colorMutedFg
                                     }
 
@@ -1511,7 +1576,7 @@ Window {
                                         }
                                         textFormat: Text.RichText
                                         font.family: root.fontMono
-                                        font.pixelSize: 12
+                                        font.pixelSize: root.terminalFontSize
                                         color: entryDelegate.resolvedColor
                                         wrapMode: Text.WrapAnywhere
                                         width: parent.width - x
@@ -1523,6 +1588,7 @@ Window {
                                     acceptedButtons: Qt.LeftButton | Qt.RightButton
                                     onClicked: function(mouse) {
                                         if (mouse.button === Qt.RightButton) {
+                                            root.lastClickedRowText = String(entryDelegate.msgText)
                                             terminalContextMenu.popup()
                                             return
                                         }
@@ -1534,6 +1600,17 @@ Window {
                                         } else {
                                             selectOnly(entryDelegate.entryIndex)
                                             root.lastClickedRow = entryDelegate.index
+                                        }
+                                    }
+                                    onWheel: function(wheel) {
+                                        if (wheel.modifiers & Qt.ControlModifier) {
+                                            if (wheel.angleDelta.y > 0 && root.terminalFontSize < 24)
+                                                root.terminalFontSize++
+                                            else if (wheel.angleDelta.y < 0 && root.terminalFontSize > 8)
+                                                root.terminalFontSize--
+                                            wheel.accepted = true
+                                        } else {
+                                            wheel.accepted = false
                                         }
                                     }
                                 }
@@ -2137,13 +2214,24 @@ Window {
     }
 
     // ── Keyword / Whitelist / Blacklist add ─────────────────────
+    function addFilterFromInput() {
+        var text = filterInput.text.trim()
+        if (text === "") return
+        if (filterTypeCombo.currentIndex === 0)
+            addKeyword(text)
+        else if (filterTypeCombo.currentIndex === 1)
+            addWhitelist(text)
+        else
+            addBlacklist(text)
+        filterInput.text = ""
+    }
+
     function addKeyword(text) {
         text = text.trim()
         if (text === "") return
         var color = root.kwPalette[root.kwColorIndex % root.kwPalette.length]
         root.kwColorIndex++
         keywordModel.append({ text: text, color: color })
-        kwInput.text = ""
         root.keywordRevision++
     }
 
@@ -2151,7 +2239,6 @@ Window {
         text = text.trim()
         if (text === "") return
         whitelistModel.append({ text: text })
-        wlInput.text = ""
         rebuildFilteredModel()
     }
 
@@ -2159,7 +2246,6 @@ Window {
         text = text.trim()
         if (text === "") return
         blacklistModel.append({ text: text })
-        blInput.text = ""
         rebuildFilteredModel()
     }
 
