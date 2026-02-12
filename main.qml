@@ -10,7 +10,7 @@ Window {
     minimumWidth: 900
     minimumHeight: 600
     visible: true
-    title: "UART PRO // SERIAL TERMINAL v0.1"
+    title: appName + " // SERIAL TERMINAL v" + appVersion
     color: colorBg
     flags: Qt.FramelessWindowHint | Qt.Window
 
@@ -2263,7 +2263,7 @@ Window {
                 Item { Layout.fillWidth: true }
 
                 Text {
-                    text: "UART PRO v0.1"
+                    text: appName + " v" + appVersion
                     font.family: root.fontMono
                     font.pixelSize: 9
                     font.letterSpacing: 1
@@ -2948,7 +2948,7 @@ Window {
     Component.onCompleted: {
         loadConfigToUI()
         var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
-        addTerminalEntry(ts, "UART PRO v0.1 // SERIAL TERMINAL INTERFACE", "", "system")
+        addTerminalEntry(ts, appName + " v" + appVersion + " // SERIAL TERMINAL INTERFACE", "", "system")
         addTerminalEntry(ts, "System initialized. Ready for connection.", "", "system")
         addTerminalEntry(ts, "Config: " + configManager.configFilePath, "", "system")
         addTerminalEntry(ts, "Select a port and click CONNECT to begin.", "", "system")

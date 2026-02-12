@@ -16,6 +16,7 @@ qt_add_executable(${PROJECT_NAME}
     FileLogger.cpp
     ConfigManager.h
     ConfigManager.cpp
+    version.h
     app.rc
 )
 
