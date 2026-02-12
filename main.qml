@@ -124,6 +124,7 @@ Window {
     property bool hexDisplayMode: false
     property bool autoScroll: true
     property bool showTimestamp: true
+    property bool showPrefix: true
     property bool hexSendMode: false
     property int terminalFontSize: 12
     property real uiScale: 1.0
@@ -1101,6 +1102,13 @@ Window {
                             onCheckedChanged: root.showTimestamp = checked
                         }
                         CyberCheckBox {
+                            text: "PREFIX"
+                            checked: root.showPrefix
+                            accentColor: root.colorAccentTertiary
+                            bgColor: root.colorBg; borderMutedColor: root.colorBorder; mutedFgColor: root.colorMutedFg
+                            onCheckedChanged: root.showPrefix = checked
+                        }
+                        CyberCheckBox {
                             text: "LINE NUMBERS"
                             checked: root.showLineNumbers
                             accentColor: root.colorAccentTertiary
@@ -1860,12 +1868,14 @@ Window {
                                         text: {
                                             root.keywordRevision  // re-evaluate on keyword change
                                             var prefix = ""
-                                            switch (String(entryDelegate.type)) {
-                                            case "rx":     prefix = "RX&gt; "; break
-                                            case "tx":     prefix = "TX&gt; "; break
-                                            case "system": prefix = "SYS&gt; "; break
-                                            case "error":  prefix = "ERR&gt; "; break
-                                            default:       prefix = "&gt; "
+                                            if (root.showPrefix) {
+                                                switch (String(entryDelegate.type)) {
+                                                case "rx":     prefix = "RX&gt; "; break
+                                                case "tx":     prefix = "TX&gt; "; break
+                                                case "system": prefix = "SYS&gt; "; break
+                                                case "error":  prefix = "ERR&gt; "; break
+                                                default:       prefix = "&gt; "
+                                                }
                                             }
                                             var textData = (root.hexDisplayMode && entryDelegate.hexData !== "")
                                                 ? entryDelegate.hexData : entryDelegate.msgText
@@ -1886,12 +1896,14 @@ Window {
                                         visible: root.activeEditRow === entryDelegate.entryIndex
                                         text: {
                                             var prefix = ""
-                                            switch (String(entryDelegate.type)) {
-                                            case "rx":     prefix = "RX> "; break
-                                            case "tx":     prefix = "TX> "; break
-                                            case "system": prefix = "SYS> "; break
-                                            case "error":  prefix = "ERR> "; break
-                                            default:       prefix = "> "
+                                            if (root.showPrefix) {
+                                                switch (String(entryDelegate.type)) {
+                                                case "rx":     prefix = "RX> "; break
+                                                case "tx":     prefix = "TX> "; break
+                                                case "system": prefix = "SYS> "; break
+                                                case "error":  prefix = "ERR> "; break
+                                                default:       prefix = "> "
+                                                }
                                             }
                                             var textData = (root.hexDisplayMode && entryDelegate.hexData !== "")
                                                 ? entryDelegate.hexData : entryDelegate.msgText
@@ -2748,12 +2760,14 @@ Window {
         if (root.showTimestamp)
             line += entry.timestamp + " "
 
-        switch (entry.type) {
-        case "rx":     line += "RX> "; break
-        case "tx":     line += "TX> "; break
-        case "system": line += "SYS> "; break
-        case "error":  line += "ERR> "; break
-        default:       line += "> "
+        if (root.showPrefix) {
+            switch (entry.type) {
+            case "rx":     line += "RX> "; break
+            case "tx":     line += "TX> "; break
+            case "system": line += "SYS> "; break
+            case "error":  line += "ERR> "; break
+            default:       line += "> "
+            }
         }
 
         line += (root.hexDisplayMode && entry.hexData !== "") ? entry.hexData : entry.msgText
