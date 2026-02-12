@@ -1894,21 +1894,8 @@ Window {
                                         id: editText
                                         objectName: "editText"
                                         visible: root.activeEditRow === entryDelegate.entryIndex
-                                        text: {
-                                            var prefix = ""
-                                            if (root.showPrefix) {
-                                                switch (String(entryDelegate.type)) {
-                                                case "rx":     prefix = "RX> "; break
-                                                case "tx":     prefix = "TX> "; break
-                                                case "system": prefix = "SYS> "; break
-                                                case "error":  prefix = "ERR> "; break
-                                                default:       prefix = "> "
-                                                }
-                                            }
-                                            var textData = (root.hexDisplayMode && entryDelegate.hexData !== "")
-                                                ? entryDelegate.hexData : entryDelegate.msgText
-                                            return prefix + String(textData)
-                                        }
+                                        text: displayText.text
+                                        textFormat: TextEdit.RichText
                                         readOnly: true
                                         selectByMouse: false   // we control selection programmatically
                                         font.family: root.fontMono
