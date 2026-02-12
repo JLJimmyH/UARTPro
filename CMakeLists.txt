@@ -13,6 +13,7 @@ qt_add_executable(${PROJECT_NAME}
     SerialPortManager.cpp
     FileLogger.h
     FileLogger.cpp
+    app.rc
 )
 
 qt_add_qml_module(${PROJECT_NAME}

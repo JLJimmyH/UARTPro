@@ -68,6 +68,24 @@ Window {
             bg: "#f4f1fa", fg: "#332f3a", card: "#ffffff", muted: "#ede8f5",
             mutedFg: "#635f69", accent: "#7c3aed", accentSecondary: "#db2777",
             accentTertiary: "#0ea5e9", border: "#ddd6ec", destructive: "#e11d48"
+        },
+        {
+            name: "WEB3",
+            bg: "#030304", fg: "#ffffff", card: "#0f1115", muted: "#161b22",
+            mutedFg: "#94a3b8", accent: "#f7931a", accentSecondary: "#ea580c",
+            accentTertiary: "#ffd600", border: "#1e293b", destructive: "#dc2626"
+        },
+        {
+            name: "MONOKAI",
+            bg: "#272822", fg: "#f8f8f2", card: "#1e1f1c", muted: "#3e3d32",
+            mutedFg: "#75715e", accent: "#a6e22e", accentSecondary: "#fd971f",
+            accentTertiary: "#66d9ef", border: "#3e3d32", destructive: "#f92672"
+        },
+        {
+            name: "DUSK",
+            bg: "#282c34", fg: "#abb2bf", card: "#21252b", muted: "#2c313a",
+            mutedFg: "#5c6370", accent: "#61afef", accentSecondary: "#c678dd",
+            accentTertiary: "#56b6c2", border: "#3e4452", destructive: "#e06c75"
         }
     ]
 
@@ -146,8 +164,8 @@ Window {
 
     // ── Data Models ────────────────────────────────────────────────
     ListModel { id: keywordModel }
-    ListModel { id: whitelistModel }
-    ListModel { id: blacklistModel }
+    ListModel { id: whitelistModel; onCountChanged: rebuildFilteredModel() }
+    ListModel { id: blacklistModel; onCountChanged: rebuildFilteredModel() }
 
     // Hidden TextEdit for clipboard access
     TextEdit { id: clipHelper; visible: false }
@@ -560,31 +578,147 @@ Window {
 
                 // Theme switcher
                 Rectangle {
-                    width: themeLabel.width + 16
+                    id: themeSwitcherBtn
+                    width: themeLabel.width + themeSwatches.width + 24
                     height: 26
-                    color: themeMa.containsMouse ? root.colorMuted : "transparent"
-                    border.color: themeMa.containsMouse ? root.colorAccent : root.colorBorder
+                    color: themeMa.containsMouse || themePopup.visible ? root.colorMuted : "transparent"
+                    border.color: themeMa.containsMouse || themePopup.visible ? root.colorAccent : root.colorBorder
                     border.width: 1
                     Behavior on border.color { ColorAnimation { duration: 150 } }
                     Behavior on color { ColorAnimation { duration: 150 } }
 
-                    Text {
-                        id: themeLabel
+                    Row {
                         anchors.centerIn: parent
-                        text: "[" + root.themes[root.currentTheme].name + "]"
-                        font.family: root.fontMono
-                        font.pixelSize: 10
-                        font.letterSpacing: 1
-                        font.bold: true
-                        color: themeMa.containsMouse ? root.colorAccent : root.colorMutedFg
-                        Behavior on color { ColorAnimation { duration: 150 } }
+                        spacing: 6
+                        Text {
+                            id: themeLabel
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: root.themes[root.currentTheme].name
+                            font.family: root.fontMono
+                            font.pixelSize: 10
+                            font.letterSpacing: 1
+                            font.bold: true
+                            color: themeMa.containsMouse || themePopup.visible ? root.colorAccent : root.colorMutedFg
+                            Behavior on color { ColorAnimation { duration: 150 } }
+                        }
+                        Row {
+                            id: themeSwatches
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 2
+                            Repeater {
+                                model: [
+                                    root.themes[root.currentTheme].accent,
+                                    root.themes[root.currentTheme].accentSecondary,
+                                    root.themes[root.currentTheme].accentTertiary
+                                ]
+                                Rectangle { width: 8; height: 8; color: modelData }
+                            }
+                        }
+                        Text {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: themePopup.visible ? "\u25B2" : "\u25BC"
+                            font.family: root.fontMono
+                            font.pixelSize: 7
+                            color: root.colorMutedFg
+                        }
                     }
                     MouseArea {
                         id: themeMa
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: root.applyTheme((root.currentTheme + 1) % root.themes.length)
+                        onClicked: themePopup.visible ? themePopup.close() : themePopup.open()
+                    }
+
+                    Popup {
+                        id: themePopup
+                        y: themeSwitcherBtn.height + 2
+                        width: 200
+                        padding: 4
+                        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutsideParent
+
+                        background: Rectangle {
+                            color: root.colorCard
+                            border.color: root.colorAccent
+                            border.width: 1
+                        }
+
+                        contentItem: Column {
+                            spacing: 2
+                            Repeater {
+                                model: root.themes.length
+                                Rectangle {
+                                    width: 192
+                                    height: 28
+                                    color: themeItemMa.containsMouse ? root.colorMuted
+                                           : (root.currentTheme === index ? Qt.rgba(root.colorAccent.r, root.colorAccent.g, root.colorAccent.b, 0.1) : "transparent")
+                                    border.color: root.currentTheme === index ? root.colorAccent : "transparent"
+                                    border.width: root.currentTheme === index ? 1 : 0
+
+                                    Row {
+                                        anchors.fill: parent
+                                        anchors.leftMargin: 8
+                                        anchors.rightMargin: 8
+                                        spacing: 8
+
+                                        Text {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: 70
+                                            text: root.themes[index].name
+                                            font.family: root.fontMono
+                                            font.pixelSize: 10
+                                            font.letterSpacing: 1
+                                            font.bold: root.currentTheme === index
+                                            color: root.currentTheme === index ? root.colorAccent : root.colorFg
+                                        }
+
+                                        // Color swatch strip
+                                        Row {
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            spacing: 3
+                                            // bg swatch
+                                            Rectangle {
+                                                width: 14; height: 14
+                                                color: root.themes[index].bg
+                                                border.color: root.themes[index].border
+                                                border.width: 1
+                                            }
+                                            // accent
+                                            Rectangle {
+                                                width: 14; height: 14
+                                                color: root.themes[index].accent
+                                            }
+                                            // accentSecondary
+                                            Rectangle {
+                                                width: 14; height: 14
+                                                color: root.themes[index].accentSecondary
+                                            }
+                                            // accentTertiary
+                                            Rectangle {
+                                                width: 14; height: 14
+                                                color: root.themes[index].accentTertiary
+                                            }
+                                            // destructive
+                                            Rectangle {
+                                                width: 14; height: 14
+                                                color: root.themes[index].destructive
+                                            }
+                                        }
+                                    }
+
+                                    MouseArea {
+                                        id: themeItemMa
+                                        anchors.fill: parent
+                                        hoverEnabled: true
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            root.applyTheme(index)
+                                            themePopup.close()
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -1442,10 +1576,7 @@ Window {
                                                     anchors.margins: -4
                                                     hoverEnabled: true
                                                     cursorShape: Qt.PointingHandCursor
-                                                    onClicked: {
-                                                        whitelistModel.remove(index)
-                                                        root.rebuildFilteredModel()
-                                                    }
+                                                    onClicked: whitelistModel.remove(index)
                                                 }
                                             }
                                         }
@@ -1485,10 +1616,7 @@ Window {
                                                     anchors.margins: -4
                                                     hoverEnabled: true
                                                     cursorShape: Qt.PointingHandCursor
-                                                    onClicked: {
-                                                        blacklistModel.remove(index)
-                                                        root.rebuildFilteredModel()
-                                                    }
+                                                    onClicked: blacklistModel.remove(index)
                                                 }
                                             }
                                         }
@@ -2502,14 +2630,12 @@ Window {
         text = text.trim()
         if (text === "") return
         whitelistModel.append({ text: text })
-        rebuildFilteredModel()
     }
 
     function addBlacklist(text) {
         text = text.trim()
         if (text === "") return
         blacklistModel.append({ text: text })
-        rebuildFilteredModel()
     }
 
     // ── Utilities ───────────────────────────────────────────────
