@@ -89,6 +89,8 @@ void ConfigManager::loadInternal(const QString &path)
         setTerminalFontSize(root.value(QStringLiteral("terminalFontSize")).toInt(12));
     if (root.contains(QStringLiteral("currentTheme")))
         setCurrentTheme(root.value(QStringLiteral("currentTheme")).toInt(4));
+    if (root.contains(QStringLiteral("showPrefix")))
+        setShowPrefix(root.value(QStringLiteral("showPrefix")).toBool(true));
 
     auto readArray = [](const QJsonArray &arr, bool hasColor) -> QVariantList {
         QVariantList result;
@@ -135,6 +137,7 @@ void ConfigManager::saveToFile()
     root[QStringLiteral("uiScale")] = m_uiScale;
     root[QStringLiteral("terminalFontSize")] = m_terminalFontSize;
     root[QStringLiteral("currentTheme")] = m_currentTheme;
+    root[QStringLiteral("showPrefix")] = m_showPrefix;
 
     auto writeArray = [](const QVariantList &list, bool hasColor) -> QJsonArray {
         QJsonArray arr;
@@ -172,6 +175,7 @@ void ConfigManager::scheduleSave()
 qreal ConfigManager::uiScale() const { return m_uiScale; }
 int ConfigManager::terminalFontSize() const { return m_terminalFontSize; }
 int ConfigManager::currentTheme() const { return m_currentTheme; }
+bool ConfigManager::showPrefix() const { return m_showPrefix; }
 QString ConfigManager::configFilePath() const { return m_configFilePath; }
 
 // ── Setters ─────────────────────────────────────────
@@ -200,6 +204,14 @@ void ConfigManager::setCurrentTheme(int value)
     if (m_currentTheme == value) return;
     m_currentTheme = value;
     emit currentThemeChanged();
+    scheduleSave();
+}
+
+void ConfigManager::setShowPrefix(bool value)
+{
+    if (m_showPrefix == value) return;
+    m_showPrefix = value;
+    emit showPrefixChanged();
     scheduleSave();
 }
 

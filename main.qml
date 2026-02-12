@@ -142,6 +142,7 @@ Window {
     onCurrentThemeChanged: if (configManager) configManager.currentTheme = currentTheme
     onTerminalFontSizeChanged: if (configManager) configManager.terminalFontSize = terminalFontSize
     onUiScaleChanged: if (configManager) configManager.uiScale = uiScale
+    onShowPrefixChanged: if (configManager) configManager.showPrefix = showPrefix
 
     // ── Terminal & Keyword State ─────────────────────────────────
     property var terminalEntries: []
@@ -2873,6 +2874,7 @@ Window {
         root.uiScale = configManager.uiScale
         root.terminalFontSize = configManager.terminalFontSize
         root.applyTheme(configManager.currentTheme)
+        root.showPrefix = configManager.showPrefix
 
         keywordModel.clear()
         var kws = configManager.keywords()

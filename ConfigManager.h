@@ -13,6 +13,7 @@ class ConfigManager : public QObject
     Q_PROPERTY(qreal uiScale READ uiScale WRITE setUiScale NOTIFY uiScaleChanged)
     Q_PROPERTY(int terminalFontSize READ terminalFontSize WRITE setTerminalFontSize NOTIFY terminalFontSizeChanged)
     Q_PROPERTY(int currentTheme READ currentTheme WRITE setCurrentTheme NOTIFY currentThemeChanged)
+    Q_PROPERTY(bool showPrefix READ showPrefix WRITE setShowPrefix NOTIFY showPrefixChanged)
     Q_PROPERTY(QString configFilePath READ configFilePath NOTIFY configFilePathChanged)
 
 public:
@@ -21,11 +22,13 @@ public:
     qreal uiScale() const;
     int terminalFontSize() const;
     int currentTheme() const;
+    bool showPrefix() const;
     QString configFilePath() const;
 
     void setUiScale(qreal value);
     void setTerminalFontSize(int value);
     void setCurrentTheme(int value);
+    void setShowPrefix(bool value);
 
     Q_INVOKABLE QVariantList keywords() const;
     Q_INVOKABLE void setKeywords(const QVariantList &list);
@@ -44,6 +47,7 @@ signals:
     void uiScaleChanged();
     void terminalFontSizeChanged();
     void currentThemeChanged();
+    void showPrefixChanged();
     void configFilePathChanged();
     void configLoaded();
 
@@ -58,6 +62,7 @@ private:
     qreal m_uiScale = 1.0;
     int m_terminalFontSize = 12;
     int m_currentTheme = 4;
+    bool m_showPrefix = true;
     QString m_configFilePath;
 
     QVariantList m_keywords;
