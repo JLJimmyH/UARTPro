@@ -6,6 +6,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt6 6.2 COMPONENTS Quick QuickControls2 SerialPort QuickDialogs2 REQUIRED)
+qt_policy(SET QTP0001 NEW)
 
 qt_add_executable(${PROJECT_NAME}
     main.cpp
@@ -13,6 +14,8 @@ qt_add_executable(${PROJECT_NAME}
     SerialPortManager.cpp
     FileLogger.h
     FileLogger.cpp
+    ConfigManager.h
+    ConfigManager.cpp
     app.rc
 )
 

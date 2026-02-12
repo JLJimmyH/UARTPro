@@ -82,3 +82,4 @@ CMakeLists.txt.user*
 /build*/
 nul
 bin/
+.claude/settings.local.json

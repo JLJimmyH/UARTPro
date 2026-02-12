@@ -137,6 +137,11 @@ Window {
     property string exportMode: "filtered"
     property bool leftPanelCollapsed: false
 
+    // ── Config sync handlers ─────────────────────────────────────
+    onCurrentThemeChanged: if (configManager) configManager.currentTheme = currentTheme
+    onTerminalFontSizeChanged: if (configManager) configManager.terminalFontSize = terminalFontSize
+    onUiScaleChanged: if (configManager) configManager.uiScale = uiScale
+
     // ── Terminal & Keyword State ─────────────────────────────────
     property var terminalEntries: []
     property var selectedSet: ({})
@@ -169,6 +174,77 @@ Window {
 
     // Hidden TextEdit for clipboard access
     TextEdit { id: clipHelper; visible: false }
+
+    // ── Config drag-and-drop + reload ─────────────────────────────
+    Connections {
+        target: configManager
+        function onConfigLoaded() {
+            loadConfigToUI()
+            var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+            addTerminalEntry(ts, "Config loaded: " + configManager.configFilePath, "", "system")
+        }
+    }
+
+    DropArea {
+        id: configDropArea
+        anchors.fill: parent
+        z: 9999
+        keys: ["text/uri-list"]
+        property bool dragActive: false
+
+        onEntered: function(drag) {
+            if (drag.hasUrls) {
+                for (var i = 0; i < drag.urls.length; i++) {
+                    if (drag.urls[i].toString().toLowerCase().endsWith(".json")) {
+                        drag.accepted = true
+                        dragActive = true
+                        return
+                    }
+                }
+            }
+            drag.accepted = false
+        }
+        onExited: dragActive = false
+        onDropped: function(drop) {
+            dragActive = false
+            for (var i = 0; i < drop.urls.length; i++) {
+                var url = drop.urls[i].toString()
+                if (url.toLowerCase().endsWith(".json")) {
+                    configManager.loadFromFile(url)
+                    return
+                }
+            }
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            visible: configDropArea.dragActive
+            color: Qt.rgba(root.colorAccent.r, root.colorAccent.g, root.colorAccent.b, 0.1)
+            border.color: root.colorAccent
+            border.width: 2
+            z: 10000
+
+            Column {
+                anchors.centerIn: parent
+                spacing: 8
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: "\u2913"
+                    font.pixelSize: 48
+                    color: root.colorAccent
+                }
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: "DROP JSON CONFIG FILE"
+                    font.family: root.fontMono
+                    font.pixelSize: 14
+                    font.letterSpacing: 2
+                    font.bold: true
+                    color: root.colorAccent
+                }
+            }
+        }
+    }
 
     // ── Keyboard Shortcuts ────────────────────────────────────────
     Shortcut {
@@ -1536,6 +1612,7 @@ Window {
                                                     onClicked: {
                                                         root.keywordRevision++
                                                         keywordModel.remove(index)
+                                                        syncKeywordsToConfig()
                                                     }
                                                 }
                                             }
@@ -1576,7 +1653,7 @@ Window {
                                                     anchors.margins: -4
                                                     hoverEnabled: true
                                                     cursorShape: Qt.PointingHandCursor
-                                                    onClicked: whitelistModel.remove(index)
+                                                    onClicked: { whitelistModel.remove(index); syncWhitelistToConfig() }
                                                 }
                                             }
                                         }
@@ -1616,7 +1693,7 @@ Window {
                                                     anchors.margins: -4
                                                     hoverEnabled: true
                                                     cursorShape: Qt.PointingHandCursor
-                                                    onClicked: blacklistModel.remove(index)
+                                                    onClicked: { blacklistModel.remove(index); syncBlacklistToConfig() }
                                                 }
                                             }
                                         }
@@ -2624,18 +2701,68 @@ Window {
         root.kwColorIndex++
         keywordModel.append({ text: text, color: color })
         root.keywordRevision++
+        syncKeywordsToConfig()
     }
 
     function addWhitelist(text) {
         text = text.trim()
         if (text === "") return
         whitelistModel.append({ text: text })
+        syncWhitelistToConfig()
     }
 
     function addBlacklist(text) {
         text = text.trim()
         if (text === "") return
         blacklistModel.append({ text: text })
+        syncBlacklistToConfig()
+    }
+
+    // ── Config sync helpers ────────────────────────────────────
+    function syncKeywordsToConfig() {
+        var list = []
+        for (var i = 0; i < keywordModel.count; i++) {
+            var item = keywordModel.get(i)
+            list.push({ text: item.text, color: item.color })
+        }
+        configManager.setKeywords(list)
+    }
+
+    function syncWhitelistToConfig() {
+        var list = []
+        for (var i = 0; i < whitelistModel.count; i++)
+            list.push({ text: whitelistModel.get(i).text })
+        configManager.setWhitelist(list)
+    }
+
+    function syncBlacklistToConfig() {
+        var list = []
+        for (var i = 0; i < blacklistModel.count; i++)
+            list.push({ text: blacklistModel.get(i).text })
+        configManager.setBlacklist(list)
+    }
+
+    function loadConfigToUI() {
+        root.uiScale = configManager.uiScale
+        root.terminalFontSize = configManager.terminalFontSize
+        root.applyTheme(configManager.currentTheme)
+
+        keywordModel.clear()
+        var kws = configManager.keywords()
+        for (var i = 0; i < kws.length; i++)
+            keywordModel.append({ text: kws[i].text, color: kws[i].color })
+        root.kwColorIndex = kws.length
+        root.keywordRevision++
+
+        whitelistModel.clear()
+        var wl = configManager.whitelist()
+        for (var j = 0; j < wl.length; j++)
+            whitelistModel.append({ text: wl[j].text })
+
+        blacklistModel.clear()
+        var bl = configManager.blacklist()
+        for (var k = 0; k < bl.length; k++)
+            blacklistModel.append({ text: bl[k].text })
     }
 
     // ── Utilities ───────────────────────────────────────────────
@@ -2690,10 +2817,11 @@ Window {
 
     // Boot sequence on startup
     Component.onCompleted: {
-        applyTheme(currentTheme)
+        loadConfigToUI()
         var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
         addTerminalEntry(ts, "UART PRO v0.1 // SERIAL TERMINAL INTERFACE", "", "system")
         addTerminalEntry(ts, "System initialized. Ready for connection.", "", "system")
+        addTerminalEntry(ts, "Config: " + configManager.configFilePath, "", "system")
         addTerminalEntry(ts, "Select a port and click CONNECT to begin.", "", "system")
         serialManager.refreshPorts()
     }

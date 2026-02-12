@@ -13,22 +13,30 @@ setlocal enabledelayedexpansion
 set SCRIPT_DIR=%~dp0
 set APP_NAME=UARTPro.exe
 
-:: --- Auto-detect build directory (prefer Release, fallback Debug) ---
-:: Scan build\ for subdirectories that contain both CMakeCache.txt and the exe
+:: --- Auto-detect build directory ---
+:: Priority: 1) build\  directly  2) build\<subdir>-Release  3) build\<subdir>-Debug
 set BUILD_DIR=
 set BUILD_TYPE=
 
-:: First pass: look for Release builds
-for /f "delims=" %%d in ('dir /b /ad "%SCRIPT_DIR%build" 2^>nul') do (
-    if exist "%SCRIPT_DIR%build\%%d\%APP_NAME%" (
-        echo %%d | findstr /i "\-Release" >nul && (
-            set "BUILD_DIR=%SCRIPT_DIR%build\%%d"
-            set "BUILD_TYPE=Release"
+:: Check if exe exists directly in build\ (build.bat output)
+if exist "%SCRIPT_DIR%build\%APP_NAME%" (
+    set "BUILD_DIR=%SCRIPT_DIR%build"
+    set "BUILD_TYPE=Release"
+)
+
+:: If not found, scan subdirectories for Release builds (Qt Creator output)
+if not defined BUILD_DIR (
+    for /f "delims=" %%d in ('dir /b /ad "%SCRIPT_DIR%build" 2^>nul') do (
+        if exist "%SCRIPT_DIR%build\%%d\%APP_NAME%" (
+            echo %%d | findstr /i "\-Release" >nul && (
+                set "BUILD_DIR=%SCRIPT_DIR%build\%%d"
+                set "BUILD_TYPE=Release"
+            )
         )
     )
 )
 
-:: Second pass: if no Release found, take any Debug
+:: If still not found, try Debug subdirectories
 if not defined BUILD_DIR (
     for /f "delims=" %%d in ('dir /b /ad "%SCRIPT_DIR%build" 2^>nul') do (
         if exist "%SCRIPT_DIR%build\%%d\%APP_NAME%" (
@@ -41,8 +49,8 @@ if not defined BUILD_DIR (
 )
 
 if not defined BUILD_DIR (
-    echo [ERROR] %APP_NAME% not found in any build subdirectory.
-    echo         Please build the project in Qt Creator first.
+    echo [ERROR] %APP_NAME% not found in build directory.
+    echo         Please run build.bat or build in Qt Creator first.
     pause
     exit /b 1
 )
@@ -58,8 +66,17 @@ if not exist "%CMAKE_CACHE%" (
 
 :: Extract CMAKE_PREFIX_PATH (Qt root, e.g. D:/Qt/6.7.3/msvc2022_64)
 set QT_ROOT=
-for /f "tokens=2 delims==" %%a in ('findstr /b "CMAKE_PREFIX_PATH:PATH=" "%CMAKE_CACHE%"') do (
+for /f "tokens=2 delims==" %%a in ('findstr /b "CMAKE_PREFIX_PATH:" "%CMAKE_CACHE%"') do (
     set "QT_ROOT=%%a"
+)
+if not defined QT_ROOT (
+    :: Fallback: try Qt6_DIR and go up 3 levels (lib/cmake/Qt6 -> root)
+    for /f "tokens=2 delims==" %%a in ('findstr /b "Qt6_DIR:PATH=" "%CMAKE_CACHE%"') do (
+        set "QT_ROOT=%%a"
+    )
+    if defined QT_ROOT (
+        for %%i in ("!QT_ROOT!\..\..\..") do set "QT_ROOT=%%~fi"
+    )
 )
 if not defined QT_ROOT (
     echo [ERROR] Cannot find CMAKE_PREFIX_PATH in CMakeCache.txt
@@ -79,13 +96,8 @@ if not exist "%QT_BIN%\windeployqt6.exe" (
 :: Extract CMAKE_CXX_COMPILER to find MSVC install root
 :: e.g. C:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.37.32822/bin/HostX64/x64/cl.exe
 set CXX_COMPILER=
-for /f "tokens=2 delims==" %%a in ('findstr /b "CMAKE_CXX_COMPILER:STRING=" "%CMAKE_CACHE%"') do (
+for /f "tokens=2 delims==" %%a in ('findstr /b "CMAKE_CXX_COMPILER:" "%CMAKE_CACHE%"') do (
     set "CXX_COMPILER=%%a"
-)
-if not defined CXX_COMPILER (
-    for /f "tokens=2 delims==" %%a in ('findstr /b "CMAKE_CXX_COMPILER:FILEPATH=" "%CMAKE_CACHE%"') do (
-        set "CXX_COMPILER=%%a"
-    )
 )
 set CXX_COMPILER=%CXX_COMPILER:/=\%
 
