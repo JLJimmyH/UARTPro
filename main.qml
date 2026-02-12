@@ -130,7 +130,6 @@ Window {
     property real uiScale: 1.0
     property bool showLineNumbers: false
     property bool colorNumbers: true
-    onColorNumbersChanged: keywordRevision++
     property int maxBufferLines: 50000
     property int entryIndexOffset: 0
     readonly property var bufferSizeOptions: [10000, 50000, 100000, 500000]
@@ -143,6 +142,11 @@ Window {
     onTerminalFontSizeChanged: if (configManager) configManager.terminalFontSize = terminalFontSize
     onUiScaleChanged: if (configManager) configManager.uiScale = uiScale
     onShowPrefixChanged: if (configManager) configManager.showPrefix = showPrefix
+    onHexDisplayModeChanged: if (configManager) configManager.hexDisplayMode = hexDisplayMode
+    onShowTimestampChanged: if (configManager) configManager.showTimestamp = showTimestamp
+    onShowLineNumbersChanged: if (configManager) configManager.showLineNumbers = showLineNumbers
+    onColorNumbersChanged: { keywordRevision++; if (configManager) configManager.colorNumbers = colorNumbers }
+    onMaxBufferLinesChanged: if (configManager) configManager.maxBufferLines = maxBufferLines
 
     // ── Terminal & Keyword State ─────────────────────────────────
     property var terminalEntries: []
@@ -3184,6 +3188,15 @@ Window {
         root.terminalFontSize = configManager.terminalFontSize
         root.applyTheme(configManager.currentTheme)
         root.showPrefix = configManager.showPrefix
+        root.hexDisplayMode = configManager.hexDisplayMode
+        root.showTimestamp = configManager.showTimestamp
+        root.showLineNumbers = configManager.showLineNumbers
+        root.colorNumbers = configManager.colorNumbers
+        root.maxBufferLines = configManager.maxBufferLines
+
+        // Sync bufferSizeCombo index
+        var bufIdx = root.bufferSizeOptions.indexOf(root.maxBufferLines)
+        if (bufIdx >= 0) bufferSizeCombo.currentIndex = bufIdx
 
         // Keywords
         keywordModel.clear()

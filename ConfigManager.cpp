@@ -99,6 +99,16 @@ void ConfigManager::loadInternal(const QString &path)
         setCurrentTheme(root.value(QStringLiteral("currentTheme")).toInt(4));
     if (root.contains(QStringLiteral("showPrefix")))
         setShowPrefix(root.value(QStringLiteral("showPrefix")).toBool(true));
+    if (root.contains(QStringLiteral("hexDisplayMode")))
+        setHexDisplayMode(root.value(QStringLiteral("hexDisplayMode")).toBool(false));
+    if (root.contains(QStringLiteral("showTimestamp")))
+        setShowTimestamp(root.value(QStringLiteral("showTimestamp")).toBool(true));
+    if (root.contains(QStringLiteral("showLineNumbers")))
+        setShowLineNumbers(root.value(QStringLiteral("showLineNumbers")).toBool(false));
+    if (root.contains(QStringLiteral("colorNumbers")))
+        setColorNumbers(root.value(QStringLiteral("colorNumbers")).toBool(true));
+    if (root.contains(QStringLiteral("maxBufferLines")))
+        setMaxBufferLines(root.value(QStringLiteral("maxBufferLines")).toInt(50000));
 
     auto readArray = [](const QJsonArray &arr, const QString &arrayType) -> QVariantList {
         QVariantList result;
@@ -187,6 +197,11 @@ void ConfigManager::saveToFile()
     root[QStringLiteral("terminalFontSize")] = m_terminalFontSize;
     root[QStringLiteral("currentTheme")] = m_currentTheme;
     root[QStringLiteral("showPrefix")] = m_showPrefix;
+    root[QStringLiteral("hexDisplayMode")] = m_hexDisplayMode;
+    root[QStringLiteral("showTimestamp")] = m_showTimestamp;
+    root[QStringLiteral("showLineNumbers")] = m_showLineNumbers;
+    root[QStringLiteral("colorNumbers")] = m_colorNumbers;
+    root[QStringLiteral("maxBufferLines")] = m_maxBufferLines;
 
     auto writeArray = [](const QVariantList &list, const QString &arrayType) -> QJsonArray {
         QJsonArray arr;
@@ -231,6 +246,11 @@ qreal ConfigManager::uiScale() const { return m_uiScale; }
 int ConfigManager::terminalFontSize() const { return m_terminalFontSize; }
 int ConfigManager::currentTheme() const { return m_currentTheme; }
 bool ConfigManager::showPrefix() const { return m_showPrefix; }
+bool ConfigManager::hexDisplayMode() const { return m_hexDisplayMode; }
+bool ConfigManager::showTimestamp() const { return m_showTimestamp; }
+bool ConfigManager::showLineNumbers() const { return m_showLineNumbers; }
+bool ConfigManager::colorNumbers() const { return m_colorNumbers; }
+int ConfigManager::maxBufferLines() const { return m_maxBufferLines; }
 QString ConfigManager::configFilePath() const { return m_configFilePath; }
 
 // ── Setters ─────────────────────────────────────────
@@ -267,6 +287,46 @@ void ConfigManager::setShowPrefix(bool value)
     if (m_showPrefix == value) return;
     m_showPrefix = value;
     emit showPrefixChanged();
+    scheduleSave();
+}
+
+void ConfigManager::setHexDisplayMode(bool value)
+{
+    if (m_hexDisplayMode == value) return;
+    m_hexDisplayMode = value;
+    emit hexDisplayModeChanged();
+    scheduleSave();
+}
+
+void ConfigManager::setShowTimestamp(bool value)
+{
+    if (m_showTimestamp == value) return;
+    m_showTimestamp = value;
+    emit showTimestampChanged();
+    scheduleSave();
+}
+
+void ConfigManager::setShowLineNumbers(bool value)
+{
+    if (m_showLineNumbers == value) return;
+    m_showLineNumbers = value;
+    emit showLineNumbersChanged();
+    scheduleSave();
+}
+
+void ConfigManager::setColorNumbers(bool value)
+{
+    if (m_colorNumbers == value) return;
+    m_colorNumbers = value;
+    emit colorNumbersChanged();
+    scheduleSave();
+}
+
+void ConfigManager::setMaxBufferLines(int value)
+{
+    if (m_maxBufferLines == value) return;
+    m_maxBufferLines = value;
+    emit maxBufferLinesChanged();
     scheduleSave();
 }
 

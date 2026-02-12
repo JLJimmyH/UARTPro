@@ -14,6 +14,11 @@ class ConfigManager : public QObject
     Q_PROPERTY(int terminalFontSize READ terminalFontSize WRITE setTerminalFontSize NOTIFY terminalFontSizeChanged)
     Q_PROPERTY(int currentTheme READ currentTheme WRITE setCurrentTheme NOTIFY currentThemeChanged)
     Q_PROPERTY(bool showPrefix READ showPrefix WRITE setShowPrefix NOTIFY showPrefixChanged)
+    Q_PROPERTY(bool hexDisplayMode READ hexDisplayMode WRITE setHexDisplayMode NOTIFY hexDisplayModeChanged)
+    Q_PROPERTY(bool showTimestamp READ showTimestamp WRITE setShowTimestamp NOTIFY showTimestampChanged)
+    Q_PROPERTY(bool showLineNumbers READ showLineNumbers WRITE setShowLineNumbers NOTIFY showLineNumbersChanged)
+    Q_PROPERTY(bool colorNumbers READ colorNumbers WRITE setColorNumbers NOTIFY colorNumbersChanged)
+    Q_PROPERTY(int maxBufferLines READ maxBufferLines WRITE setMaxBufferLines NOTIFY maxBufferLinesChanged)
     Q_PROPERTY(QString configFilePath READ configFilePath NOTIFY configFilePathChanged)
 
 public:
@@ -24,12 +29,22 @@ public:
     int terminalFontSize() const;
     int currentTheme() const;
     bool showPrefix() const;
+    bool hexDisplayMode() const;
+    bool showTimestamp() const;
+    bool showLineNumbers() const;
+    bool colorNumbers() const;
+    int maxBufferLines() const;
     QString configFilePath() const;
 
     void setUiScale(qreal value);
     void setTerminalFontSize(int value);
     void setCurrentTheme(int value);
     void setShowPrefix(bool value);
+    void setHexDisplayMode(bool value);
+    void setShowTimestamp(bool value);
+    void setShowLineNumbers(bool value);
+    void setColorNumbers(bool value);
+    void setMaxBufferLines(int value);
 
     Q_INVOKABLE QVariantList keywords() const;
     Q_INVOKABLE void setKeywords(const QVariantList &list);
@@ -46,6 +61,11 @@ signals:
     void terminalFontSizeChanged();
     void currentThemeChanged();
     void showPrefixChanged();
+    void hexDisplayModeChanged();
+    void showTimestampChanged();
+    void showLineNumbersChanged();
+    void colorNumbersChanged();
+    void maxBufferLinesChanged();
     void configFilePathChanged();
     void configLoaded();
 
@@ -61,6 +81,11 @@ private:
     int m_terminalFontSize = 12;
     int m_currentTheme = 4;
     bool m_showPrefix = true;
+    bool m_hexDisplayMode = false;
+    bool m_showTimestamp = true;
+    bool m_showLineNumbers = false;
+    bool m_colorNumbers = true;
+    int m_maxBufferLines = 50000;
     QString m_configFilePath;
 
     QVariantList m_keywords;
