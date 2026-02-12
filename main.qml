@@ -2100,7 +2100,6 @@ Window {
                                         }
                                         // Plain left click → activate char-level selection on this row
                                         root.activeEditRow = entryDelegate.entryIndex
-                                        root.autoScroll = false
                                         selectOnly(entryDelegate.entryIndex)
                                         root.lastClickedRow = entryDelegate.index
                                         // Calculate start position for drag selection
@@ -2182,7 +2181,9 @@ Window {
                             anchors.bottom: parent.bottom
                             anchors.left: parent.left
                             anchors.right: parent.right
-                            anchors.margins: 8
+                            anchors.leftMargin: 8
+                            anchors.bottomMargin: 8
+                            anchors.rightMargin: 20
                             height: 32
                             z: 5
                             visible: !root.autoScroll && terminalModel.count > 0
@@ -2198,7 +2199,7 @@ Window {
                                 spacing: 12
 
                                 Text {
-                                    text: "\u23F8 AUTO-SCROLL PAUSED"
+                                    text: "AUTO-SCROLL PAUSED"
                                     font.family: root.fontMono
                                     font.pixelSize: 10
                                     font.letterSpacing: 1
@@ -2217,7 +2218,7 @@ Window {
                                     Text {
                                         id: jumpText
                                         anchors.centerIn: parent
-                                        text: "\u2193 JUMP TO LATEST"
+                                        text: "JUMP TO LATEST"
                                         font.family: root.fontMono
                                         font.pixelSize: 10
                                         font.letterSpacing: 1
