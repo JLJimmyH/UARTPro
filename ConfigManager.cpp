@@ -7,7 +7,7 @@
 #include <QJsonArray>
 
 static const int SAVE_DEBOUNCE_MS = 500;
-static const int CONFIG_VERSION = 1;
+static const int CONFIG_VERSION = 2;
 
 ConfigManager::ConfigManager(QObject *parent)
     : QObject(parent)
@@ -100,33 +100,74 @@ void ConfigManager::loadInternal(const QString &path)
     if (root.contains(QStringLiteral("showPrefix")))
         setShowPrefix(root.value(QStringLiteral("showPrefix")).toBool(true));
 
-    auto readArray = [](const QJsonArray &arr, bool hasColor) -> QVariantList {
+    auto readArray = [](const QJsonArray &arr, const QString &arrayType) -> QVariantList {
         QVariantList result;
         for (const QJsonValue &v : arr) {
             QJsonObject obj = v.toObject();
             QVariantMap item;
             item[QStringLiteral("text")] = obj.value(QStringLiteral("text")).toString();
-            if (hasColor)
+
+            if (arrayType == QStringLiteral("keywords")) {
                 item[QStringLiteral("color")] = obj.value(QStringLiteral("color")).toString();
+                item[QStringLiteral("enabled")] = obj.contains(QStringLiteral("enabled"))
+                    ? obj.value(QStringLiteral("enabled")).toBool() : true;
+                item[QStringLiteral("mode")] = obj.contains(QStringLiteral("mode"))
+                    ? obj.value(QStringLiteral("mode")).toString() : QStringLiteral("bg");
+            } else if (arrayType == QStringLiteral("filters")) {
+                item[QStringLiteral("filterType")] = obj.value(QStringLiteral("filterType")).toString();
+                item[QStringLiteral("enabled")] = obj.contains(QStringLiteral("enabled"))
+                    ? obj.value(QStringLiteral("enabled")).toBool() : true;
+            }
             result.append(item);
         }
         return result;
     };
 
+    int version = root.value(QStringLiteral("version")).toInt(1);
+
     if (root.contains(QStringLiteral("keywords")))
-        m_keywords = readArray(root.value(QStringLiteral("keywords")).toArray(), true);
+        m_keywords = readArray(root.value(QStringLiteral("keywords")).toArray(), QStringLiteral("keywords"));
     else
         m_keywords.clear();
 
-    if (root.contains(QStringLiteral("whitelist")))
-        m_whitelist = readArray(root.value(QStringLiteral("whitelist")).toArray(), false);
-    else
-        m_whitelist.clear();
-
-    if (root.contains(QStringLiteral("blacklist")))
-        m_blacklist = readArray(root.value(QStringLiteral("blacklist")).toArray(), false);
-    else
-        m_blacklist.clear();
+    if (version < 2) {
+        // v1 → v2 migration: merge whitelist/blacklist into filters
+        m_filters.clear();
+        if (root.contains(QStringLiteral("whitelist"))) {
+            QJsonArray wlArr = root.value(QStringLiteral("whitelist")).toArray();
+            for (const QJsonValue &v : wlArr) {
+                QVariantMap item;
+                item[QStringLiteral("text")] = v.toObject().value(QStringLiteral("text")).toString();
+                item[QStringLiteral("filterType")] = QStringLiteral("include");
+                item[QStringLiteral("enabled")] = true;
+                m_filters.append(item);
+            }
+        }
+        if (root.contains(QStringLiteral("blacklist"))) {
+            QJsonArray blArr = root.value(QStringLiteral("blacklist")).toArray();
+            for (const QJsonValue &v : blArr) {
+                QVariantMap item;
+                item[QStringLiteral("text")] = v.toObject().value(QStringLiteral("text")).toString();
+                item[QStringLiteral("filterType")] = QStringLiteral("exclude");
+                item[QStringLiteral("enabled")] = true;
+                m_filters.append(item);
+            }
+        }
+        // Ensure v1 keywords have enabled + mode defaults
+        for (int i = 0; i < m_keywords.size(); ++i) {
+            QVariantMap map = m_keywords[i].toMap();
+            if (!map.contains(QStringLiteral("enabled")))
+                map[QStringLiteral("enabled")] = true;
+            if (!map.contains(QStringLiteral("mode")))
+                map[QStringLiteral("mode")] = QStringLiteral("bg");
+            m_keywords[i] = map;
+        }
+    } else {
+        if (root.contains(QStringLiteral("filters")))
+            m_filters = readArray(root.value(QStringLiteral("filters")).toArray(), QStringLiteral("filters"));
+        else
+            m_filters.clear();
+    }
 
     m_configFilePath = path;
     emit configFilePathChanged();
@@ -147,22 +188,28 @@ void ConfigManager::saveToFile()
     root[QStringLiteral("currentTheme")] = m_currentTheme;
     root[QStringLiteral("showPrefix")] = m_showPrefix;
 
-    auto writeArray = [](const QVariantList &list, bool hasColor) -> QJsonArray {
+    auto writeArray = [](const QVariantList &list, const QString &arrayType) -> QJsonArray {
         QJsonArray arr;
         for (const QVariant &v : list) {
             QVariantMap map = v.toMap();
             QJsonObject obj;
             obj[QStringLiteral("text")] = map.value(QStringLiteral("text")).toString();
-            if (hasColor)
+
+            if (arrayType == QStringLiteral("keywords")) {
                 obj[QStringLiteral("color")] = map.value(QStringLiteral("color")).toString();
+                obj[QStringLiteral("enabled")] = map.value(QStringLiteral("enabled")).toBool();
+                obj[QStringLiteral("mode")] = map.value(QStringLiteral("mode")).toString();
+            } else if (arrayType == QStringLiteral("filters")) {
+                obj[QStringLiteral("filterType")] = map.value(QStringLiteral("filterType")).toString();
+                obj[QStringLiteral("enabled")] = map.value(QStringLiteral("enabled")).toBool();
+            }
             arr.append(obj);
         }
         return arr;
     };
 
-    root[QStringLiteral("keywords")] = writeArray(m_keywords, true);
-    root[QStringLiteral("whitelist")] = writeArray(m_whitelist, false);
-    root[QStringLiteral("blacklist")] = writeArray(m_blacklist, false);
+    root[QStringLiteral("keywords")] = writeArray(m_keywords, QStringLiteral("keywords"));
+    root[QStringLiteral("filters")]  = writeArray(m_filters,  QStringLiteral("filters"));
 
     QJsonDocument doc(root);
     QFile file(m_configFilePath);
@@ -232,16 +279,9 @@ void ConfigManager::setKeywords(const QVariantList &list)
     scheduleSave();
 }
 
-QVariantList ConfigManager::whitelist() const { return m_whitelist; }
-void ConfigManager::setWhitelist(const QVariantList &list)
+QVariantList ConfigManager::filters() const { return m_filters; }
+void ConfigManager::setFilters(const QVariantList &list)
 {
-    m_whitelist = list;
-    scheduleSave();
-}
-
-QVariantList ConfigManager::blacklist() const { return m_blacklist; }
-void ConfigManager::setBlacklist(const QVariantList &list)
-{
-    m_blacklist = list;
+    m_filters = list;
     scheduleSave();
 }

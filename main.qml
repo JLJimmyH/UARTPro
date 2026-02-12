@@ -173,9 +173,8 @@ Window {
     readonly property var lineEndings:  ["None", "CR", "LF", "CR+LF"]
 
     // ── Data Models ────────────────────────────────────────────────
-    ListModel { id: keywordModel;   onCountChanged: syncKeywordsToConfig() }
-    ListModel { id: whitelistModel; onCountChanged: { rebuildFilteredModel(); syncWhitelistToConfig() } }
-    ListModel { id: blacklistModel; onCountChanged: { rebuildFilteredModel(); syncBlacklistToConfig() } }
+    ListModel { id: keywordModel;  onCountChanged: { root.keywordRevision++; syncKeywordsToConfig() } }
+    ListModel { id: filterModel;   onCountChanged: { rebuildFilteredModel(); syncFiltersToConfig() } }
 
     // Hidden TextEdit for clipboard access
     TextEdit { id: clipHelper; visible: false }
@@ -490,9 +489,9 @@ Window {
             }
         }
         MenuItem {
-            text: "  + ADD TO WHITELIST"
+            text: "  + INCLUDE IN FILTER"
             enabled: root.lastClickedRowText !== ""
-            onTriggered: addWhitelist(root.lastClickedRowText)
+            onTriggered: addFilter(root.lastClickedRowText, "include")
             contentItem: Text {
                 text: parent.text
                 font.family: root.fontMono; font.pixelSize: 11
@@ -504,9 +503,9 @@ Window {
             }
         }
         MenuItem {
-            text: "  \u2212 ADD TO BLACKLIST"
+            text: "  \u2212 EXCLUDE FROM FILTER"
             enabled: root.lastClickedRowText !== ""
-            onTriggered: addBlacklist(root.lastClickedRowText)
+            onTriggered: addFilter(root.lastClickedRowText, "exclude")
             contentItem: Text {
                 text: parent.text
                 font.family: root.fontMono; font.pixelSize: 11
@@ -548,6 +547,60 @@ Window {
             }
             background: Rectangle {
                 color: parent.hovered ? root.colorMuted : "transparent"
+            }
+        }
+    }
+
+    // ── Color Picker Popup (for keyword chip color swatch) ──────
+    Popup {
+        id: colorPickerPopup
+        width: 200; height: 80
+        modal: false
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        property int targetIndex: -1
+
+        background: Rectangle {
+            color: root.colorCard
+            border.color: root.colorBorder
+            border.width: 1
+            radius: 4
+        }
+
+        Grid {
+            anchors.centerIn: parent
+            columns: 4
+            spacing: 8
+
+            Repeater {
+                model: root.kwPalette
+                delegate: Rectangle {
+                    width: 28; height: 28
+                    radius: 4
+                    color: modelData
+                    border.color: {
+                        if (colorPickerPopup.targetIndex >= 0
+                            && colorPickerPopup.targetIndex < keywordModel.count
+                            && keywordModel.get(colorPickerPopup.targetIndex).color === modelData)
+                            return root.colorFg
+                        return "transparent"
+                    }
+                    border.width: 2
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: {
+                            if (colorPickerPopup.targetIndex >= 0
+                                && colorPickerPopup.targetIndex < keywordModel.count) {
+                                keywordModel.setProperty(colorPickerPopup.targetIndex, "color", modelData)
+                                root.keywordRevision++
+                                syncKeywordsToConfig()
+                            }
+                            colorPickerPopup.close()
+                        }
+                    }
+                }
             }
         }
     }
@@ -1278,7 +1331,7 @@ Window {
 
                             // Filter indicator
                             Text {
-                                visible: whitelistModel.count > 0 || blacklistModel.count > 0
+                                visible: filterModel.count > 0
                                 text: "[FILTERED " + terminalModel.count + "/" + root.terminalEntries.length + "]"
                                 font.family: root.fontMono
                                 font.pixelSize: 10
@@ -1565,11 +1618,22 @@ Window {
                                 CyberComboBox {
                                     id: filterTypeCombo
                                     Layout.preferredWidth: 120
-                                    model: ["Highlight", "Whitelist", "Blacklist"]
+                                    model: ["Highlight", "Filter"]
                                     currentIndex: 0
-                                    accentColor: filterTypeCombo.currentIndex === 0 ? "#ffaa00"
-                                               : filterTypeCombo.currentIndex === 1 ? root.colorAccent
-                                               : root.colorDestructive
+                                    accentColor: filterTypeCombo.currentIndex === 0 ? "#ffaa00" : root.colorAccent
+                                    cardColor: root.colorCard; borderColor: root.colorBorder
+                                    fgColor: root.colorFg; bgColor: root.colorBg
+                                    mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
+                                    font.pixelSize: 11
+                                }
+
+                                CyberComboBox {
+                                    id: filterSubTypeCombo
+                                    Layout.preferredWidth: 100
+                                    model: ["Include", "Exclude"]
+                                    currentIndex: 0
+                                    visible: filterTypeCombo.currentIndex === 1
+                                    accentColor: filterSubTypeCombo.currentIndex === 0 ? root.colorAccent : root.colorDestructive
                                     cardColor: root.colorCard; borderColor: root.colorBorder
                                     fgColor: root.colorFg; bgColor: root.colorBg
                                     mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
@@ -1580,10 +1644,10 @@ Window {
                                     id: filterInput
                                     Layout.fillWidth: true
                                     placeholderText: filterTypeCombo.currentIndex === 0 ? "highlight keyword..."
-                                                   : filterTypeCombo.currentIndex === 1 ? "include filter..."
+                                                   : filterSubTypeCombo.currentIndex === 0 ? "include filter..."
                                                    : "exclude filter..."
                                     accentColor: filterTypeCombo.currentIndex === 0 ? "#ffaa00"
-                                               : filterTypeCombo.currentIndex === 1 ? root.colorAccent
+                                               : filterSubTypeCombo.currentIndex === 0 ? root.colorAccent
                                                : root.colorDestructive
                                     cardColor: root.colorCard; borderColor: root.colorBorder
                                     bgColor: root.colorBg; mutedFgColor: root.colorMutedFg
@@ -1597,7 +1661,7 @@ Window {
                                     Layout.preferredWidth: 40
                                     text: "+"
                                     accentColor: filterTypeCombo.currentIndex === 0 ? "#ffaa00"
-                                               : filterTypeCombo.currentIndex === 1 ? root.colorAccent
+                                               : filterSubTypeCombo.currentIndex === 0 ? root.colorAccent
                                                : root.colorDestructive
                                     bgColor: root.colorBg; borderMutedColor: root.colorBorder
                                     font.pixelSize: 14
@@ -1610,31 +1674,101 @@ Window {
                                 Layout.fillWidth: true
                                 Layout.bottomMargin: 6
                                 spacing: 4
-                                visible: keywordModel.count > 0 || whitelistModel.count > 0 || blacklistModel.count > 0
+                                visible: keywordModel.count > 0 || filterModel.count > 0
 
                                 // Keyword chips
                                 Repeater {
                                     model: keywordModel
                                     delegate: Rectangle {
-                                        width: kwChipRow.implicitWidth + 16
-                                        height: 22
-                                        color: Qt.rgba(Qt.color(model.color).r, Qt.color(model.color).g, Qt.color(model.color).b, 0.15)
-                                        border.color: model.color
+                                        width: kwChipRow.implicitWidth + 20
+                                        height: 26
+                                        radius: 3
+                                        color: Qt.rgba(Qt.color(model.color).r, Qt.color(model.color).g, Qt.color(model.color).b,
+                                                       model.enabled ? 0.15 : 0.05)
+                                        border.color: model.enabled ? model.color
+                                                                    : Qt.rgba(Qt.color(model.color).r, Qt.color(model.color).g, Qt.color(model.color).b, 0.3)
                                         border.width: 1
+                                        opacity: model.enabled ? 1.0 : 0.5
 
                                         Row {
                                             id: kwChipRow
                                             anchors.centerIn: parent
-                                            spacing: 4
+                                            spacing: 6
+
+                                            // Color swatch
+                                            Rectangle {
+                                                width: 14; height: 14
+                                                radius: 3
+                                                color: model.color
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    anchors.margins: -3
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        colorPickerPopup.targetIndex = index
+                                                        var pos = parent.mapToItem(root.contentItem, 0, 0)
+                                                        colorPickerPopup.x = pos.x
+                                                        colorPickerPopup.y = pos.y + 20
+                                                        colorPickerPopup.open()
+                                                    }
+                                                }
+                                            }
+
+                                            // Mode label (click to cycle: bg → text → line → bg)
+                                            Text {
+                                                text: model.mode === "bg" ? "BG" : model.mode === "text" ? "FG" : "LN"
+                                                font.family: root.fontMono; font.pixelSize: 10; font.bold: true
+                                                color: model.color
+                                                opacity: 0.7
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    anchors.margins: -3
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        var modes = ["bg", "text", "line"]
+                                                        var cur = modes.indexOf(model.mode)
+                                                        var next = modes[(cur + 1) % modes.length]
+                                                        keywordModel.setProperty(index, "mode", next)
+                                                        root.keywordRevision++
+                                                        syncKeywordsToConfig()
+                                                    }
+                                                }
+                                            }
+
+                                            // Keyword text
                                             Text {
                                                 text: model.text
-                                                font.family: root.fontMono; font.pixelSize: 10
+                                                font.family: root.fontMono; font.pixelSize: 11
                                                 color: model.color
                                                 anchors.verticalCenter: parent.verticalCenter
                                             }
+
+                                            // Enabled toggle (ON/OFF)
+                                            Text {
+                                                text: model.enabled ? "ON" : "OFF"
+                                                font.family: root.fontMono; font.pixelSize: 9; font.bold: true
+                                                color: model.enabled ? model.color : root.colorMutedFg
+                                                opacity: model.enabled ? 0.9 : 0.65
+                                                anchors.verticalCenter: parent.verticalCenter
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    anchors.margins: -4
+                                                    hoverEnabled: true
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: {
+                                                        keywordModel.setProperty(index, "enabled", !model.enabled)
+                                                        root.keywordRevision++
+                                                        syncKeywordsToConfig()
+                                                    }
+                                                }
+                                            }
+
+                                            // Delete button
                                             Text {
                                                 text: "\u2715"
-                                                font.family: root.fontMono; font.pixelSize: 9
+                                                font.family: root.fontMono; font.pixelSize: 11
                                                 font.bold: true
                                                 color: root.colorDestructive
                                                 opacity: kwChipMa.containsMouse ? 1.0 : 0.5
@@ -1656,80 +1790,71 @@ Window {
                                     }
                                 }
 
-                                // Whitelist chips
+                                // Filter chips (unified include/exclude)
                                 Repeater {
-                                    model: whitelistModel
+                                    model: filterModel
                                     delegate: Rectangle {
-                                        width: wlChipRow.implicitWidth + 16
-                                        height: 22
-                                        color: Qt.rgba(root.colorAccent.r, root.colorAccent.g, root.colorAccent.b, 0.15)
-                                        border.color: root.colorAccent
+                                        property bool isInclude: model.filterType === "include"
+                                        property color chipColor: isInclude ? root.colorAccent : root.colorDestructive
+
+                                        width: flChipRow.implicitWidth + 20
+                                        height: 26
+                                        radius: 3
+                                        color: Qt.rgba(chipColor.r, chipColor.g, chipColor.b,
+                                                       model.enabled ? 0.15 : 0.05)
+                                        border.color: model.enabled ? chipColor
+                                                                    : Qt.rgba(chipColor.r, chipColor.g, chipColor.b, 0.3)
                                         border.width: 1
+                                        opacity: model.enabled ? 1.0 : 0.5
 
                                         Row {
-                                            id: wlChipRow
+                                            id: flChipRow
                                             anchors.centerIn: parent
-                                            spacing: 4
+                                            spacing: 6
+
+                                            // +/- prefix and text
                                             Text {
-                                                text: "+" + model.text
-                                                font.family: root.fontMono; font.pixelSize: 10
-                                                color: root.colorAccent
+                                                text: (isInclude ? "+" : "\u2212") + " " + model.text
+                                                font.family: root.fontMono; font.pixelSize: 11
+                                                color: chipColor
                                                 anchors.verticalCenter: parent.verticalCenter
                                             }
+
+                                            // Enabled toggle (ON/OFF)
                                             Text {
-                                                text: "\u2715"
-                                                font.family: root.fontMono; font.pixelSize: 9
-                                                font.bold: true
-                                                color: root.colorDestructive
-                                                opacity: wlChipMa.containsMouse ? 1.0 : 0.5
+                                                text: model.enabled ? "ON" : "OFF"
+                                                font.family: root.fontMono; font.pixelSize: 9; font.bold: true
+                                                color: model.enabled ? chipColor : root.colorMutedFg
+                                                opacity: model.enabled ? 0.9 : 0.65
                                                 anchors.verticalCenter: parent.verticalCenter
                                                 MouseArea {
-                                                    id: wlChipMa
                                                     anchors.fill: parent
                                                     anchors.margins: -4
                                                     hoverEnabled: true
                                                     cursorShape: Qt.PointingHandCursor
-                                                    onClicked: { whitelistModel.remove(index); syncWhitelistToConfig() }
+                                                    onClicked: {
+                                                        filterModel.setProperty(index, "enabled", !model.enabled)
+                                                        rebuildFilteredModel()
+                                                        syncFiltersToConfig()
+                                                    }
                                                 }
                                             }
-                                        }
-                                    }
-                                }
 
-                                // Blacklist chips
-                                Repeater {
-                                    model: blacklistModel
-                                    delegate: Rectangle {
-                                        width: blChipRow.implicitWidth + 16
-                                        height: 22
-                                        color: Qt.rgba(root.colorDestructive.r, root.colorDestructive.g, root.colorDestructive.b, 0.15)
-                                        border.color: root.colorDestructive
-                                        border.width: 1
-
-                                        Row {
-                                            id: blChipRow
-                                            anchors.centerIn: parent
-                                            spacing: 4
-                                            Text {
-                                                text: "\u2212" + model.text
-                                                font.family: root.fontMono; font.pixelSize: 10
-                                                color: root.colorDestructive
-                                                anchors.verticalCenter: parent.verticalCenter
-                                            }
+                                            // Delete
                                             Text {
                                                 text: "\u2715"
-                                                font.family: root.fontMono; font.pixelSize: 9
+                                                font.family: root.fontMono; font.pixelSize: 11
                                                 font.bold: true
                                                 color: root.colorDestructive
-                                                opacity: blChipMa.containsMouse ? 1.0 : 0.5
+                                                opacity: flChipMa.containsMouse ? 1.0 : 0.5
                                                 anchors.verticalCenter: parent.verticalCenter
                                                 MouseArea {
-                                                    id: blChipMa
+                                                    id: flChipMa
                                                     anchors.fill: parent
                                                     anchors.margins: -4
                                                     hoverEnabled: true
                                                     cursorShape: Qt.PointingHandCursor
-                                                    onClicked: { blacklistModel.remove(index); syncBlacklistToConfig() }
+                                                    onClicked: { filterModel.remove(index); syncFiltersToConfig() }
                                                 }
                                             }
                                         }
@@ -1850,6 +1975,20 @@ Window {
                                     color: entryDelegate.isSelected
                                         ? Qt.rgba(root.colorAccent.r, root.colorAccent.g, root.colorAccent.b, 0.15)
                                         : "transparent"
+                                }
+
+                                // Line-mode keyword highlight background
+                                Rectangle {
+                                    anchors.fill: parent
+                                    color: {
+                                        root.keywordRevision  // trigger re-evaluation on keyword changes
+                                        var textData = (root.hexDisplayMode && entryDelegate.hexData !== "")
+                                            ? String(entryDelegate.hexData) : String(entryDelegate.msgText)
+                                        var lineColor = getLineHighlightColor(textData)
+                                        if (lineColor === "") return "transparent"
+                                        var qc = Qt.color(lineColor)
+                                        return Qt.rgba(qc.r, qc.g, qc.b, 0.18)
+                                    }
                                 }
 
                                 // Search match highlight background
@@ -2613,21 +2752,33 @@ Window {
 
         var text = entry.msgText.toLowerCase()
 
-        // Whitelist: if any whitelist entries exist, data must contain at least one
-        if (whitelistModel.count > 0) {
-            var wlPass = false
-            for (var i = 0; i < whitelistModel.count; i++) {
-                if (text.indexOf(whitelistModel.get(i).text.toLowerCase()) >= 0) {
-                    wlPass = true
+        // Collect enabled include/exclude filters
+        var includes = []
+        var excludes = []
+        for (var i = 0; i < filterModel.count; i++) {
+            var f = filterModel.get(i)
+            if (!f.enabled) continue
+            if (f.filterType === "include")
+                includes.push(f.text.toLowerCase())
+            else
+                excludes.push(f.text.toLowerCase())
+        }
+
+        // Include: if any include filter exists, text must match at least one (OR)
+        if (includes.length > 0) {
+            var includePass = false
+            for (var ii = 0; ii < includes.length; ii++) {
+                if (text.indexOf(includes[ii]) >= 0) {
+                    includePass = true
                     break
                 }
             }
-            if (!wlPass) return false
+            if (!includePass) return false
         }
 
-        // Blacklist: data must not contain any blacklist entry
-        for (var j = 0; j < blacklistModel.count; j++) {
-            if (text.indexOf(blacklistModel.get(j).text.toLowerCase()) >= 0)
+        // Exclude: text must not contain any exclude filter (AND NOT)
+        for (var j = 0; j < excludes.length; j++) {
+            if (text.indexOf(excludes[j]) >= 0)
                 return false
         }
 
@@ -2709,12 +2860,26 @@ Window {
     function highlightText(raw) {
         var html = escapeHtml(raw)
 
-        // Step 1: Keyword highlighting
+        // Step 1: Keyword highlighting (bg and text modes; line mode handled in delegate)
+        // Uses tag-skipping pattern to avoid corrupting previously inserted HTML tags
         for (var i = 0; i < keywordModel.count; i++) {
             var kw = keywordModel.get(i)
+            if (!kw.enabled) continue
+            if (kw.mode === "line") continue  // line mode is handled at delegate level
+
             var escaped = escapeRegex(escapeHtml(kw.text))
-            var re = new RegExp("(" + escaped + ")", "gi")
-            html = html.replace(re, "<span style='background-color:" + kw.color + ";color:" + root.colorBg + ";font-weight:bold;'>$1</span>")
+            var re = new RegExp("(<[^>]+>)|(" + escaped + ")", "gi")
+            var kwColor = kw.color
+            var kwMode = kw.mode
+            var bgColor = String(root.colorBg)
+
+            html = html.replace(re, function(match, tag, text) {
+                if (tag) return tag  // pass HTML tags through unchanged
+                if (kwMode === "bg")
+                    return "<span style='background-color:" + kwColor + ";color:" + bgColor + ";font-weight:bold;'>" + text + "</span>"
+                else
+                    return "<span style='color:" + kwColor + ";font-weight:bold;'>" + text + "</span>"
+            })
         }
 
         // Step 2: Color numbers outside HTML tags (won't touch tag attributes)
@@ -2727,6 +2892,17 @@ Window {
         }
 
         return html
+    }
+
+    function getLineHighlightColor(rawText) {
+        var text = rawText.toLowerCase()
+        for (var i = 0; i < keywordModel.count; i++) {
+            var kw = keywordModel.get(i)
+            if (!kw.enabled || kw.mode !== "line") continue
+            if (text.indexOf(kw.text.toLowerCase()) >= 0)
+                return kw.color
+        }
+        return ""
     }
 
     // ── Selection ───────────────────────────────────────────────
@@ -2909,16 +3085,16 @@ Window {
             copyToClipboard(lines.join("\n"))
     }
 
-    // ── Keyword / Whitelist / Blacklist add ─────────────────────
+    // ── Keyword / Filter add ─────────────────────────────────────
     function addFilterFromInput() {
         var text = filterInput.text.trim()
         if (text === "") return
         if (filterTypeCombo.currentIndex === 0)
             addKeyword(text)
-        else if (filterTypeCombo.currentIndex === 1)
-            addWhitelist(text)
-        else
-            addBlacklist(text)
+        else {
+            var ft = filterSubTypeCombo.currentIndex === 0 ? "include" : "exclude"
+            addFilter(text, ft)
+        }
         filterInput.text = ""
     }
 
@@ -2927,23 +3103,16 @@ Window {
         if (text === "") return
         var color = root.kwPalette[root.kwColorIndex % root.kwPalette.length]
         root.kwColorIndex++
-        keywordModel.append({ text: text, color: color })
+        keywordModel.append({ text: text, color: color, enabled: true, mode: "bg" })
         root.keywordRevision++
         syncKeywordsToConfig()
     }
 
-    function addWhitelist(text) {
+    function addFilter(text, filterType) {
         text = text.trim()
         if (text === "") return
-        whitelistModel.append({ text: text })
-        syncWhitelistToConfig()
-    }
-
-    function addBlacklist(text) {
-        text = text.trim()
-        if (text === "") return
-        blacklistModel.append({ text: text })
-        syncBlacklistToConfig()
+        filterModel.append({ text: text, filterType: filterType, enabled: true })
+        syncFiltersToConfig()
     }
 
     // ── Config sync helpers ────────────────────────────────────
@@ -2951,23 +3120,18 @@ Window {
         var list = []
         for (var i = 0; i < keywordModel.count; i++) {
             var item = keywordModel.get(i)
-            list.push({ text: item.text, color: item.color })
+            list.push({ text: item.text, color: item.color, enabled: item.enabled, mode: item.mode })
         }
         configManager.setKeywords(list)
     }
 
-    function syncWhitelistToConfig() {
+    function syncFiltersToConfig() {
         var list = []
-        for (var i = 0; i < whitelistModel.count; i++)
-            list.push({ text: whitelistModel.get(i).text })
-        configManager.setWhitelist(list)
-    }
-
-    function syncBlacklistToConfig() {
-        var list = []
-        for (var i = 0; i < blacklistModel.count; i++)
-            list.push({ text: blacklistModel.get(i).text })
-        configManager.setBlacklist(list)
+        for (var i = 0; i < filterModel.count; i++) {
+            var item = filterModel.get(i)
+            list.push({ text: item.text, filterType: item.filterType, enabled: item.enabled })
+        }
+        configManager.setFilters(list)
     }
 
     function loadConfigToUI() {
@@ -2976,22 +3140,30 @@ Window {
         root.applyTheme(configManager.currentTheme)
         root.showPrefix = configManager.showPrefix
 
+        // Keywords
         keywordModel.clear()
         var kws = configManager.keywords()
-        for (var i = 0; i < kws.length; i++)
-            keywordModel.append({ text: kws[i].text, color: kws[i].color })
+        for (var i = 0; i < kws.length; i++) {
+            keywordModel.append({
+                text: kws[i].text,
+                color: kws[i].color,
+                enabled: kws[i].enabled !== undefined ? kws[i].enabled : true,
+                mode: kws[i].mode || "bg"
+            })
+        }
         root.kwColorIndex = kws.length
         root.keywordRevision++
 
-        whitelistModel.clear()
-        var wl = configManager.whitelist()
-        for (var j = 0; j < wl.length; j++)
-            whitelistModel.append({ text: wl[j].text })
-
-        blacklistModel.clear()
-        var bl = configManager.blacklist()
-        for (var k = 0; k < bl.length; k++)
-            blacklistModel.append({ text: bl[k].text })
+        // Filters
+        filterModel.clear()
+        var fl = configManager.filters()
+        for (var j = 0; j < fl.length; j++) {
+            filterModel.append({
+                text: fl[j].text,
+                filterType: fl[j].filterType || "include",
+                enabled: fl[j].enabled !== undefined ? fl[j].enabled : true
+            })
+        }
     }
 
     // ── Utilities ───────────────────────────────────────────────

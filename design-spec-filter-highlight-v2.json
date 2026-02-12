@@ -1,0 +1,793 @@
+{
+  "$meta": {
+    "title": "UARTPro — Highlight & Filter 功能重構規格",
+    "version": "2.0",
+    "date": "2025-02-12",
+    "description": "將 whitelist/blacklist 合併為 filter，新增 enabled 可見性切換，highlight 支援顏色調整與多種高亮模式",
+    "tech_stack": "Qt 6 / QML + C++ (ConfigManager)",
+    "target_files": [
+      "main.qml",
+      "ConfigManager.h",
+      "ConfigManager.cpp"
+    ]
+  },
+
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "合併 whitelist/blacklist 為統一 Filter 模型",
+      "priority": "P0",
+      "depends_on": [],
+      "description": "將 whitelistModel 與 blacklistModel 合併為單一 filterModel，每項帶有 type 欄位區分 include/exclude"
+    },
+    {
+      "id": "T2",
+      "title": "為所有 chip 加入 enabled 可見性切換（眼睛 icon）",
+      "priority": "P0",
+      "depends_on": ["T1"]
+    },
+    {
+      "id": "T3",
+      "title": "Highlight 支援顏色調整（色盤 popup）",
+      "priority": "P1",
+      "depends_on": ["T2"]
+    },
+    {
+      "id": "T4",
+      "title": "Highlight 支援多種高亮模式 (bg / text / line)",
+      "priority": "P1",
+      "depends_on": ["T2"]
+    },
+    {
+      "id": "T5",
+      "title": "更新 ConfigManager C++ 後端",
+      "priority": "P0",
+      "depends_on": ["T1"]
+    },
+    {
+      "id": "T6",
+      "title": "更新右鍵選單",
+      "priority": "P1",
+      "depends_on": ["T1"]
+    }
+  ],
+
+  "data_model": {
+    "before": {
+      "description": "目前的資料結構",
+      "keywordModel_item": {
+        "text": "string — 關鍵字文字",
+        "color": "string — hex 顏色碼，如 #00ff88"
+      },
+      "whitelistModel_item": {
+        "text": "string"
+      },
+      "blacklistModel_item": {
+        "text": "string"
+      },
+      "qml_models": [
+        "ListModel { id: keywordModel }",
+        "ListModel { id: whitelistModel }",
+        "ListModel { id: blacklistModel }"
+      ]
+    },
+
+    "after": {
+      "description": "重構後的資料結構",
+
+      "keywordModel_item": {
+        "text": "string — 關鍵字文字",
+        "color": "string — hex 顏色碼，如 #00ff88",
+        "enabled": "bool — 是否啟用，預設 true",
+        "mode": "string — 高亮模式，可選值: 'bg' | 'text' | 'line'，預設 'bg'"
+      },
+
+      "filterModel_item": {
+        "text": "string — 過濾關鍵字",
+        "filterType": "string — 過濾類型，可選值: 'include' | 'exclude'",
+        "enabled": "bool — 是否啟用，預設 true"
+      },
+
+      "qml_models": [
+        "ListModel { id: keywordModel;  onCountChanged: { syncKeywordsToConfig() } }",
+        "ListModel { id: filterModel;   onCountChanged: { rebuildFilteredModel(); syncFiltersToConfig() } }"
+      ],
+
+      "note": "移除 whitelistModel 和 blacklistModel，統一為 filterModel"
+    }
+  },
+
+  "json_config": {
+    "before": {
+      "file": "uartpro_config.json",
+      "schema": {
+        "version": 1,
+        "keywords": [
+          { "text": "voltage", "color": "#00ff88" }
+        ],
+        "whitelist": [
+          { "text": "sensor" }
+        ],
+        "blacklist": [
+          { "text": "noise" }
+        ]
+      }
+    },
+
+    "after": {
+      "file": "uartpro_config.json",
+      "version_bump": "將 CONFIG_VERSION 從 1 升為 2",
+      "schema": {
+        "version": 2,
+        "keywords": [
+          { "text": "voltage", "color": "#00ff88", "enabled": true, "mode": "bg" },
+          { "text": "error",   "color": "#ff3366", "enabled": true, "mode": "line" },
+          { "text": "OK",      "color": "#00d4ff", "enabled": false, "mode": "text" }
+        ],
+        "filters": [
+          { "text": "sensor", "filterType": "include", "enabled": true },
+          { "text": "motor",  "filterType": "include", "enabled": true },
+          { "text": "debug",  "filterType": "exclude", "enabled": true },
+          { "text": "noise",  "filterType": "exclude", "enabled": false }
+        ]
+      },
+
+      "migration": {
+        "description": "讀取 v1 配置時自動遷移",
+        "rules": [
+          "若 JSON 無 version 欄位或 version === 1，執行遷移",
+          "whitelist[] → filters[]，每項加 filterType: 'include', enabled: true",
+          "blacklist[] → filters[]，每項加 filterType: 'exclude', enabled: true",
+          "keywords[] 每項加 enabled: true, mode: 'bg'（若缺失）",
+          "遷移後寫回時使用 version: 2，不再寫出 whitelist/blacklist 欄位"
+        ]
+      }
+    }
+  },
+
+  "cpp_backend_changes": {
+    "file_header": "ConfigManager.h",
+    "file_impl": "ConfigManager.cpp",
+
+    "remove": {
+      "members": ["QVariantList m_whitelist", "QVariantList m_blacklist"],
+      "methods": [
+        "QVariantList whitelist() const",
+        "void setWhitelist(const QVariantList &list)",
+        "QVariantList blacklist() const",
+        "void setBlacklist(const QVariantList &list)"
+      ]
+    },
+
+    "add": {
+      "members": ["QVariantList m_filters"],
+      "methods": [
+        {
+          "signature": "Q_INVOKABLE QVariantList filters() const",
+          "returns": "m_filters"
+        },
+        {
+          "signature": "Q_INVOKABLE void setFilters(const QVariantList &list)",
+          "body": "m_filters = list; scheduleSave();"
+        }
+      ]
+    },
+
+    "readArray_changes": {
+      "description": "修改 loadInternal() 中的 readArray lambda，支援新欄位",
+      "keywords_read": {
+        "fields_to_read": ["text", "color", "enabled (default: true)", "mode (default: 'bg')"],
+        "code_hint": "item['enabled'] = obj.contains('enabled') ? obj['enabled'].toBool() : true; item['mode'] = obj.contains('mode') ? obj['mode'].toString() : 'bg';"
+      },
+      "filters_read": {
+        "fields_to_read": ["text", "filterType", "enabled (default: true)"],
+        "code_hint": "item['filterType'] = obj['filterType'].toString(); item['enabled'] = obj.contains('enabled') ? obj['enabled'].toBool() : true;"
+      },
+      "migration_logic": {
+        "description": "在 loadInternal() 中判斷 version 欄位",
+        "pseudocode": [
+          "int ver = root['version'].toInt(1);",
+          "if (ver < 2) {",
+          "  // 讀取舊格式 whitelist → filters (include)",
+          "  // 讀取舊格式 blacklist → filters (exclude)",
+          "  // keywords 補上 enabled=true, mode='bg'",
+          "}",
+          "else {",
+          "  // 讀取新格式 filters",
+          "}"
+        ]
+      }
+    },
+
+    "writeArray_changes": {
+      "description": "修改 saveToFile()，只寫出新格式",
+      "keywords_write": {
+        "fields_to_write": ["text", "color", "enabled", "mode"]
+      },
+      "filters_write": {
+        "fields_to_write": ["text", "filterType", "enabled"]
+      },
+      "output_keys": {
+        "remove": ["whitelist", "blacklist"],
+        "add": ["filters"],
+        "keep": ["keywords"]
+      }
+    }
+  },
+
+  "qml_ui_changes": {
+
+    "toolbar_layout": {
+      "file": "main.qml",
+      "location": "filterToolbarCol (約 line 1550-1740)",
+      "description": "重構 filter toolbar 輸入列與 chips 區域",
+
+      "combo_box": {
+        "before": {
+          "id": "filterTypeCombo",
+          "model": ["Highlight", "Whitelist", "Blacklist"],
+          "location": "line 1565-1577"
+        },
+        "after": {
+          "id": "filterTypeCombo",
+          "model": ["Highlight", "Filter"],
+          "behavior": "選 Highlight 時進入高亮模式；選 Filter 時進入過濾模式"
+        }
+      },
+
+      "filter_subtype_combo": {
+        "description": "新增第二個 ComboBox，只在 filterTypeCombo === 1 (Filter) 時顯示",
+        "id": "filterSubTypeCombo",
+        "model": ["Include", "Exclude"],
+        "default_index": 0,
+        "accent_colors": {
+          "include": "root.colorAccent (綠色系)",
+          "exclude": "root.colorDestructive (紅色系)"
+        },
+        "visibility": "visible: filterTypeCombo.currentIndex === 1",
+        "preferred_width": 100
+      },
+
+      "text_input": {
+        "id": "filterInput",
+        "placeholder_logic": {
+          "highlight": "'highlight keyword...'",
+          "filter_include": "'include filter...'",
+          "filter_exclude": "'exclude filter...'"
+        },
+        "accent_color_logic": "依據目前選擇的類型動態變化"
+      },
+
+      "add_button": {
+        "description": "'+' 按鈕的 onClicked 邏輯更新",
+        "logic": "呼叫 addFilterFromInput()，根據 combo 狀態分流到 addKeyword() 或 addFilter()"
+      }
+    },
+
+    "chips_area": {
+      "location": "Flow layout (約 line 1609-1738)",
+      "description": "重構 chips 顯示區域",
+
+      "keyword_chips": {
+        "description": "Highlight 關鍵字 chips — 加入色塊、模式指示、眼睛 icon",
+        "chip_layout": {
+          "structure": "[色塊] [mode標籤] text [眼睛icon] [×]",
+          "total_height": 24,
+          "components": [
+            {
+              "name": "colorSwatch",
+              "type": "Rectangle",
+              "size": "12x12",
+              "radius": 2,
+              "color": "model.color",
+              "behavior": "點擊彈出 colorPickerPopup",
+              "cursor": "Qt.PointingHandCursor"
+            },
+            {
+              "name": "modeLabel",
+              "type": "Text",
+              "display": {
+                "bg": "BG",
+                "text": "TX",
+                "line": "LN"
+              },
+              "font_size": 8,
+              "font_bold": true,
+              "color": "model.color",
+              "opacity": 0.7,
+              "behavior": "點擊循環切換模式: bg → text → line → bg",
+              "cursor": "Qt.PointingHandCursor"
+            },
+            {
+              "name": "keywordText",
+              "type": "Text",
+              "text": "model.text",
+              "font_size": 10,
+              "color": "model.color"
+            },
+            {
+              "name": "visibilityToggle",
+              "type": "Text",
+              "text_when_enabled": "\uD83D\uDC41",
+              "fallback_unicode": "👁 (或使用 \\u25C9 ◉ 啟用 / \\u25CB ○ 停用，視字體支援度)",
+              "recommended": "使用兩個純文字符號: enabled → '◉' (\\u25C9), disabled → '○' (\\u25CB)",
+              "font_size": 10,
+              "opacity_when_enabled": 0.8,
+              "opacity_when_disabled": 0.3,
+              "behavior": "點擊切換 model.enabled，觸發 keywordRevision++ 與 syncKeywordsToConfig()",
+              "cursor": "Qt.PointingHandCursor"
+            },
+            {
+              "name": "deleteButton",
+              "type": "Text",
+              "text": "✕ (\\u2715)",
+              "behavior": "與現有相同，移除項目"
+            }
+          ],
+          "chip_background": {
+            "when_enabled": "Qt.rgba(color.r, color.g, color.b, 0.15)",
+            "when_disabled": "Qt.rgba(color.r, color.g, color.b, 0.05)",
+            "border_when_enabled": "model.color",
+            "border_when_disabled": "Qt.rgba(color.r, color.g, color.b, 0.3)"
+          }
+        }
+      },
+
+      "filter_chips": {
+        "description": "Filter chips — 取代舊的 whitelist/blacklist chips",
+        "note": "只有一個 Repeater，model 為 filterModel",
+        "chip_layout": {
+          "structure": "[prefix] text [眼睛icon] [×]",
+          "total_height": 22,
+          "components": [
+            {
+              "name": "prefixAndText",
+              "type": "Text",
+              "text_logic": "(model.filterType === 'include' ? '+' : '−') + ' ' + model.text",
+              "font_size": 10,
+              "color_logic": {
+                "include": "root.colorAccent",
+                "exclude": "root.colorDestructive"
+              }
+            },
+            {
+              "name": "visibilityToggle",
+              "type": "Text",
+              "recommended": "enabled → '◉' (\\u25C9), disabled → '○' (\\u25CB)",
+              "font_size": 10,
+              "opacity_when_enabled": 0.8,
+              "opacity_when_disabled": 0.3,
+              "behavior": "點擊切換 model.enabled，觸發 rebuildFilteredModel() 與 syncFiltersToConfig()",
+              "cursor": "Qt.PointingHandCursor"
+            },
+            {
+              "name": "deleteButton",
+              "type": "Text",
+              "text": "✕ (\\u2715)",
+              "behavior": "filterModel.remove(index); syncFiltersToConfig()"
+            }
+          ],
+          "chip_background": {
+            "include_enabled": "Qt.rgba(colorAccent.r, colorAccent.g, colorAccent.b, 0.15)",
+            "include_disabled": "Qt.rgba(colorAccent.r, colorAccent.g, colorAccent.b, 0.05)",
+            "exclude_enabled": "Qt.rgba(colorDestructive.r, colorDestructive.g, colorDestructive.b, 0.15)",
+            "exclude_disabled": "Qt.rgba(colorDestructive.r, colorDestructive.g, colorDestructive.b, 0.05)",
+            "border_color": "同 chip text color，disabled 時 opacity 降至 0.3"
+          }
+        }
+      }
+    },
+
+    "color_picker_popup": {
+      "description": "新增色盤彈出元件，供 keyword chip 的色塊點擊時使用",
+      "id": "colorPickerPopup",
+      "type": "Popup",
+      "properties": {
+        "width": 180,
+        "height": 80,
+        "modal": false,
+        "closePolicy": "Popup.CloseOnPressOutside | Popup.CloseOnEscape"
+      },
+      "state": {
+        "property_targetIndex": "int — 目前編輯的 keywordModel index",
+        "open_function": "function openColorPicker(chipIndex, chipX, chipY) { targetIndex = chipIndex; x = chipX; y = chipY + 26; open() }"
+      },
+      "content": {
+        "layout": "Grid or Flow",
+        "palette_colors": ["#ff3366", "#ffaa00", "#00ff88", "#00d4ff", "#ff00ff", "#ffff00", "#ff6600", "#aa66ff"],
+        "each_swatch": {
+          "type": "Rectangle",
+          "size": "20x20",
+          "radius": 3,
+          "border": "目前被選中的色顯示白色邊框 2px，其餘無邊框",
+          "on_click": {
+            "steps": [
+              "keywordModel.setProperty(targetIndex, 'color', selectedColor)",
+              "root.keywordRevision++",
+              "syncKeywordsToConfig()",
+              "colorPickerPopup.close()"
+            ]
+          }
+        },
+        "custom_hex_input": {
+          "description": "可選：底部加一個小型 TextField 讓使用者手動輸入 hex 色碼",
+          "priority": "nice-to-have，可先不做",
+          "validation": "以 /^#[0-9a-fA-F]{6}$/ 驗證"
+        }
+      }
+    },
+
+    "toggle_all_button": {
+      "description": "可選功能 — 在 chips 區域加入全部啟用/停用的快捷按鈕",
+      "priority": "nice-to-have",
+      "implementation": {
+        "highlight_toggle": {
+          "text": "'◉' 或 '○' 依據是否全部啟用",
+          "position": "在 keyword chips 前方或 Flow 的第一個元素",
+          "on_click": "遍歷 keywordModel 全部設 enabled = !allEnabled; keywordRevision++; syncKeywordsToConfig()"
+        },
+        "filter_toggle": {
+          "text": "'◉' 或 '○' 依據是否全部啟用",
+          "position": "在 filter chips 前方",
+          "on_click": "遍歷 filterModel 全部設 enabled = !allEnabled; rebuildFilteredModel(); syncFiltersToConfig()"
+        }
+      }
+    }
+  },
+
+  "function_changes": {
+
+    "addFilterFromInput": {
+      "location": "main.qml ~line 2913",
+      "before": "根據 filterTypeCombo.currentIndex 分流到 addKeyword / addWhitelist / addBlacklist",
+      "after": {
+        "logic": [
+          "var text = filterInput.text.trim()",
+          "if (text === '') return",
+          "if (filterTypeCombo.currentIndex === 0) {",
+          "    addKeyword(text)",
+          "} else {",
+          "    var type = filterSubTypeCombo.currentIndex === 0 ? 'include' : 'exclude'",
+          "    addFilter(text, type)",
+          "}",
+          "filterInput.text = ''"
+        ]
+      }
+    },
+
+    "addKeyword": {
+      "location": "main.qml ~line 2925",
+      "before": "keywordModel.append({ text: text, color: color })",
+      "after": {
+        "logic": [
+          "var color = root.kwPalette[root.kwColorIndex % root.kwPalette.length]",
+          "root.kwColorIndex++",
+          "keywordModel.append({ text: text, color: color, enabled: true, mode: 'bg' })",
+          "root.keywordRevision++",
+          "syncKeywordsToConfig()"
+        ]
+      }
+    },
+
+    "addFilter": {
+      "description": "新函式，取代舊的 addWhitelist / addBlacklist",
+      "signature": "function addFilter(text, filterType)",
+      "logic": [
+        "text = text.trim()",
+        "if (text === '') return",
+        "filterModel.append({ text: text, filterType: filterType, enabled: true })",
+        "syncFiltersToConfig()"
+      ]
+    },
+
+    "remove_functions": [
+      "addWhitelist(text) — 由 addFilter(text, 'include') 取代",
+      "addBlacklist(text) — 由 addFilter(text, 'exclude') 取代",
+      "syncWhitelistToConfig() — 由 syncFiltersToConfig() 取代",
+      "syncBlacklistToConfig() — 由 syncFiltersToConfig() 取代"
+    ],
+
+    "syncKeywordsToConfig": {
+      "location": "main.qml ~line 2950",
+      "before": "只推送 { text, color }",
+      "after": {
+        "logic": [
+          "var list = []",
+          "for (var i = 0; i < keywordModel.count; i++) {",
+          "    var item = keywordModel.get(i)",
+          "    list.push({ text: item.text, color: item.color, enabled: item.enabled, mode: item.mode })",
+          "}",
+          "configManager.setKeywords(list)"
+        ]
+      }
+    },
+
+    "syncFiltersToConfig": {
+      "description": "新函式，取代舊的 syncWhitelistToConfig + syncBlacklistToConfig",
+      "logic": [
+        "var list = []",
+        "for (var i = 0; i < filterModel.count; i++) {",
+        "    var item = filterModel.get(i)",
+        "    list.push({ text: item.text, filterType: item.filterType, enabled: item.enabled })",
+        "}",
+        "configManager.setFilters(list)"
+      ]
+    },
+
+    "passesFilter": {
+      "location": "main.qml ~line 2609",
+      "before": "分別遍歷 whitelistModel 和 blacklistModel",
+      "after": {
+        "logic": [
+          "function passesFilter(entry) {",
+          "    if (entry.type === 'system' || entry.type === 'error') return true",
+          "    var text = entry.msgText.toLowerCase()",
+          "",
+          "    // 收集啟用的 include 和 exclude 項目",
+          "    var includes = []",
+          "    var excludes = []",
+          "    for (var i = 0; i < filterModel.count; i++) {",
+          "        var f = filterModel.get(i)",
+          "        if (!f.enabled) continue",
+          "        if (f.filterType === 'include') includes.push(f.text.toLowerCase())",
+          "        else excludes.push(f.text.toLowerCase())",
+          "    }",
+          "",
+          "    // Include 邏輯: 若有任何 include 項，必須匹配至少一個 (OR)",
+          "    if (includes.length > 0) {",
+          "        var pass = false",
+          "        for (var j = 0; j < includes.length; j++) {",
+          "            if (text.indexOf(includes[j]) >= 0) { pass = true; break }",
+          "        }",
+          "        if (!pass) return false",
+          "    }",
+          "",
+          "    // Exclude 邏輯: 不得包含任何 exclude 項 (AND NOT)",
+          "    for (var k = 0; k < excludes.length; k++) {",
+          "        if (text.indexOf(excludes[k]) >= 0) return false",
+          "    }",
+          "",
+          "    return true",
+          "}"
+        ]
+      }
+    },
+
+    "highlightText": {
+      "location": "main.qml ~line 2709",
+      "before": "所有關鍵字都用背景色高亮",
+      "after": {
+        "description": "根據 mode 和 enabled 分別處理，line 模式不在此函式處理",
+        "logic": [
+          "function highlightText(raw) {",
+          "    var html = escapeHtml(raw)",
+          "",
+          "    for (var i = 0; i < keywordModel.count; i++) {",
+          "        var kw = keywordModel.get(i)",
+          "        if (!kw.enabled) continue",
+          "        if (kw.mode === 'line') continue  // line 模式在 delegate 層處理",
+          "",
+          "        var escaped = escapeRegex(escapeHtml(kw.text))",
+          "        var re = new RegExp('(' + escaped + ')', 'gi')",
+          "",
+          "        if (kw.mode === 'bg') {",
+          "            // 背景高亮（原有行為）",
+          "            html = html.replace(re,",
+          "                \"<span style='background-color:\" + kw.color + \";color:\" + root.colorBg + \";font-weight:bold;'>$1</span>\")",
+          "        } else if (kw.mode === 'text') {",
+          "            // 純文字顏色",
+          "            html = html.replace(re,",
+          "                \"<span style='color:\" + kw.color + \";font-weight:bold;'>$1</span>\")",
+          "        }",
+          "    }",
+          "",
+          "    // 數字著色（保持原有邏輯）",
+          "    if (root.colorNumbers) {",
+          "        var numColor = String(root.colorAccentTertiary)",
+          "        html = html.replace(/(<[^>]+>)|(\\b(?:0x[0-9a-fA-F]+|\\d+\\.?\\d*)\\b)/g, function(match, tag, num) {",
+          "            if (tag) return tag",
+          "            return \"<span style='color:\" + numColor + \";'>\" + num + \"</span>\"",
+          "        })",
+          "    }",
+          "",
+          "    return html",
+          "}"
+        ]
+      }
+    },
+
+    "getLineHighlightColor": {
+      "description": "新增輔助函式 — 供 delegate 判斷是否需要整行背景色",
+      "logic": [
+        "function getLineHighlightColor(msgText) {",
+        "    // 回傳第一個匹配的 line-mode 關鍵字的顏色，無匹配回傳 'transparent'",
+        "    var text = msgText.toLowerCase()",
+        "    for (var i = 0; i < keywordModel.count; i++) {",
+        "        var kw = keywordModel.get(i)",
+        "        if (!kw.enabled || kw.mode !== 'line') continue",
+        "        if (text.indexOf(kw.text.toLowerCase()) >= 0)",
+        "            return kw.color",
+        "    }",
+        "    return 'transparent'",
+        "}"
+      ]
+    },
+
+    "loadConfigToUI": {
+      "location": "main.qml ~line 2973",
+      "before": "分別載入 keywordModel, whitelistModel, blacklistModel",
+      "after": {
+        "logic": [
+          "function loadConfigToUI() {",
+          "    root.uiScale = configManager.uiScale",
+          "    root.terminalFontSize = configManager.terminalFontSize",
+          "    root.applyTheme(configManager.currentTheme)",
+          "    root.showPrefix = configManager.showPrefix",
+          "",
+          "    // Keywords",
+          "    keywordModel.clear()",
+          "    var kws = configManager.keywords()",
+          "    for (var i = 0; i < kws.length; i++) {",
+          "        keywordModel.append({",
+          "            text: kws[i].text,",
+          "            color: kws[i].color,",
+          "            enabled: kws[i].enabled !== undefined ? kws[i].enabled : true,",
+          "            mode: kws[i].mode || 'bg'",
+          "        })",
+          "    }",
+          "    root.kwColorIndex = kws.length",
+          "    root.keywordRevision++",
+          "",
+          "    // Filters",
+          "    filterModel.clear()",
+          "    var filters = configManager.filters()",
+          "    for (var j = 0; j < filters.length; j++) {",
+          "        filterModel.append({",
+          "            text: filters[j].text,",
+          "            filterType: filters[j].filterType || 'include',",
+          "            enabled: filters[j].enabled !== undefined ? filters[j].enabled : true",
+          "        })",
+          "    }",
+          "}"
+        ]
+      }
+    }
+  },
+
+  "delegate_changes": {
+    "location": "main.qml ~line 1807-1987 (entryDelegate)",
+    "description": "在 entry delegate 中加入 line 模式的整行背景色",
+
+    "add_line_highlight_rect": {
+      "description": "在現有的 selection highlight 和 search highlight 之間，新增 line-mode 高亮背景",
+      "insert_after": "line 1853 (selection highlight Rectangle 結束之後)",
+      "code": [
+        "// Line-mode keyword highlight background",
+        "Rectangle {",
+        "    anchors.fill: parent",
+        "    color: {",
+        "        root.keywordRevision  // 追蹤關鍵字變動",
+        "        var c = getLineHighlightColor(String(entryDelegate.msgText))",
+        "        if (c === 'transparent') return 'transparent'",
+        "        var qc = Qt.color(c)",
+        "        return Qt.rgba(qc.r, qc.g, qc.b, 0.18)",
+        "    }",
+        "}"
+      ],
+      "note": "放在 search highlight 之前，這樣 search highlight 會疊加在上面不被遮擋"
+    }
+  },
+
+  "context_menu_changes": {
+    "location": "main.qml ~line 478-519 (terminalContextMenu)",
+    "description": "更新右鍵選單項目",
+
+    "before": [
+      { "text": "+ HIGHLIGHT THIS", "action": "addKeyword(root.lastClickedRowText)" },
+      { "text": "+ ADD TO WHITELIST", "action": "addWhitelist(root.lastClickedRowText)" },
+      { "text": "− ADD TO BLACKLIST", "action": "addBlacklist(root.lastClickedRowText)" }
+    ],
+
+    "after": [
+      {
+        "text": "+ HIGHLIGHT THIS",
+        "color": "#ffaa00",
+        "action": "addKeyword(root.lastClickedRowText)",
+        "note": "保持不變"
+      },
+      {
+        "text": "+ INCLUDE IN FILTER",
+        "color": "root.colorAccent",
+        "action": "addFilter(root.lastClickedRowText, 'include')"
+      },
+      {
+        "text": "− EXCLUDE FROM FILTER",
+        "color": "root.colorDestructive",
+        "action": "addFilter(root.lastClickedRowText, 'exclude')"
+      }
+    ]
+  },
+
+  "rebuildFilteredModel_trigger": {
+    "description": "rebuildFilteredModel 的觸發時機更新",
+    "before": "whitelistModel.onCountChanged 和 blacklistModel.onCountChanged",
+    "after": {
+      "triggers": [
+        "filterModel.onCountChanged — 項目增減時",
+        "手動呼叫 — 當 filter chip 的 enabled 被切換時（因為 onCountChanged 不會觸發）"
+      ],
+      "note": "切換 enabled 時必須手動呼叫 rebuildFilteredModel()，因為 ListModel 的 setProperty 不觸發 onCountChanged"
+    }
+  },
+
+  "implementation_order": [
+    {
+      "step": 1,
+      "description": "修改 ConfigManager (C++)",
+      "details": [
+        "移除 whitelist/blacklist 成員與方法",
+        "新增 filters 成員與方法",
+        "更新 readArray/writeArray 支援新欄位",
+        "加入 v1 → v2 遷移邏輯"
+      ]
+    },
+    {
+      "step": 2,
+      "description": "更新 QML 資料模型",
+      "details": [
+        "移除 whitelistModel、blacklistModel",
+        "新增 filterModel",
+        "更新 keywordModel 項目結構加入 enabled, mode"
+      ]
+    },
+    {
+      "step": 3,
+      "description": "更新 JS 函式",
+      "details": [
+        "修改 addFilterFromInput, passesFilter, highlightText",
+        "新增 addFilter, syncFiltersToConfig, getLineHighlightColor",
+        "移除 addWhitelist, addBlacklist, syncWhitelistToConfig, syncBlacklistToConfig",
+        "更新 loadConfigToUI, syncKeywordsToConfig"
+      ]
+    },
+    {
+      "step": 4,
+      "description": "重構 toolbar UI",
+      "details": [
+        "ComboBox 改為 ['Highlight', 'Filter']",
+        "新增 filterSubTypeCombo (Include/Exclude)",
+        "重新建構 chips 區域",
+        "加入眼睛 icon 可見性切換",
+        "加入色塊點擊與模式切換"
+      ]
+    },
+    {
+      "step": 5,
+      "description": "新增 colorPickerPopup",
+      "details": [
+        "8 色色盤 Grid",
+        "點擊切換顏色",
+        "可選: 自訂 hex 輸入"
+      ]
+    },
+    {
+      "step": 6,
+      "description": "更新 delegate 與右鍵選單",
+      "details": [
+        "delegate 加入 line-mode 背景 Rectangle",
+        "右鍵選單文字更新為 Include/Exclude"
+      ]
+    },
+    {
+      "step": 7,
+      "description": "測試與驗證",
+      "details": [
+        "確認 v1 config 遷移正確",
+        "確認 highlight 三種模式都正常運作",
+        "確認 filter include/exclude 邏輯正確",
+        "確認 enabled 切換即時生效",
+        "確認顏色變更即時反映在終端"
+      ]
+    }
+  ]
+}

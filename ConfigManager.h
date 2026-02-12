@@ -34,11 +34,8 @@ public:
     Q_INVOKABLE QVariantList keywords() const;
     Q_INVOKABLE void setKeywords(const QVariantList &list);
 
-    Q_INVOKABLE QVariantList whitelist() const;
-    Q_INVOKABLE void setWhitelist(const QVariantList &list);
-
-    Q_INVOKABLE QVariantList blacklist() const;
-    Q_INVOKABLE void setBlacklist(const QVariantList &list);
+    Q_INVOKABLE QVariantList filters() const;
+    Q_INVOKABLE void setFilters(const QVariantList &list);
 
     Q_INVOKABLE void loadFromFile(const QString &filePath);
     Q_INVOKABLE void setConfigPath(const QString &filePath);
@@ -67,8 +64,7 @@ private:
     QString m_configFilePath;
 
     QVariantList m_keywords;
-    QVariantList m_whitelist;
-    QVariantList m_blacklist;
+    QVariantList m_filters;
 
     QTimer *m_saveTimer;
     bool m_loading = false;
