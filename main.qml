@@ -147,6 +147,8 @@ Window {
     property var selectedSet: ({})
     property int selectionVersion: 0
     property int lastClickedRow: -1
+    property int activeEditRow: -1      // entryIndex of the row in text-select mode
+    property int _selStart: -1          // character selection start position
     property int keywordRevision: 0
     property int kwColorIndex: 0
     readonly property var kwPalette: ["#ff3366", "#ffaa00", "#00ff88", "#00d4ff",
@@ -255,7 +257,7 @@ Window {
     Shortcut {
         sequence: "Ctrl+C"
         context: Qt.ApplicationShortcut
-        onActivated: copySelectedEntries()
+        onActivated: copySelectedOrInlineText()
     }
     Shortcut {
         sequence: "Ctrl+F"
@@ -401,7 +403,7 @@ Window {
         MenuItem {
             text: "  COPY SELECTED"
             enabled: { root.selectionVersion; return Object.keys(root.selectedSet).length > 0 }
-            onTriggered: copySelectedEntries()
+            onTriggered: copySelectedOrInlineText()
             contentItem: Text {
                 text: parent.text
                 font.family: root.fontMono; font.pixelSize: 11
@@ -1718,12 +1720,12 @@ Window {
                             anchors.margins: 8
                             model: terminalModel
                             clip: true
+                            interactive: false   // disable mouse-drag scrolling; wheel still works via MouseArea
                             boundsBehavior: Flickable.StopAtBounds
 
                             // Auto-scroll rules:
                             //   1. Scroll to bottom → enable auto-scroll
                             //   2. Any upward scroll → disable auto-scroll
-                            property real _dragStartY: 0
 
                             function isAtBottom() {
                                 if (terminalModel.count === 0) return true
@@ -1732,19 +1734,10 @@ Window {
                                 return (lastItem.y + lastItem.height) <= (contentY + height + 2)
                             }
 
-                            // Immediately re-enable auto-scroll when reaching bottom
+                            // Re-enable auto-scroll when reaching bottom
                             onContentYChanged: {
                                 if (!root.autoScroll && isAtBottom())
                                     root.autoScroll = true
-                            }
-
-                            // Drag / flick upward → disable auto-scroll
-                            onMovingChanged: {
-                                if (moving) {
-                                    _dragStartY = contentY
-                                } else if (contentY < _dragStartY) {
-                                    root.autoScroll = false
-                                }
                             }
 
                             // Re-position to bottom after scale/font changes when auto-scroll is active
@@ -1862,6 +1855,8 @@ Window {
 
                                     // Prefix + Data (RichText for keyword highlighting)
                                     Text {
+                                        id: displayText
+                                        visible: root.activeEditRow !== entryDelegate.entryIndex
                                         text: {
                                             root.keywordRevision  // re-evaluate on keyword change
                                             var prefix = ""
@@ -1883,26 +1878,84 @@ Window {
                                         wrapMode: Text.WrapAnywhere
                                         width: parent.width - x
                                     }
+
+                                    // Selectable TextEdit (plain text, shown on click for char-level selection)
+                                    TextEdit {
+                                        id: editText
+                                        objectName: "editText"
+                                        visible: root.activeEditRow === entryDelegate.entryIndex
+                                        text: {
+                                            var prefix = ""
+                                            switch (String(entryDelegate.type)) {
+                                            case "rx":     prefix = "RX> "; break
+                                            case "tx":     prefix = "TX> "; break
+                                            case "system": prefix = "SYS> "; break
+                                            case "error":  prefix = "ERR> "; break
+                                            default:       prefix = "> "
+                                            }
+                                            var textData = (root.hexDisplayMode && entryDelegate.hexData !== "")
+                                                ? entryDelegate.hexData : entryDelegate.msgText
+                                            return prefix + String(textData)
+                                        }
+                                        readOnly: true
+                                        selectByMouse: false   // we control selection programmatically
+                                        font.family: root.fontMono
+                                        font.pixelSize: root.terminalFontSize
+                                        color: entryDelegate.resolvedColor
+                                        selectedTextColor: root.colorBg
+                                        selectionColor: Qt.rgba(root.colorAccent.r, root.colorAccent.g, root.colorAccent.b, 0.6)
+                                        wrapMode: TextEdit.WrapAnywhere
+                                        width: parent.width - x
+                                    }
                                 }
 
                                 MouseArea {
                                     anchors.fill: parent
                                     acceptedButtons: Qt.LeftButton | Qt.RightButton
-                                    onClicked: function(mouse) {
+                                    onPressed: function(mouse) {
                                         if (mouse.button === Qt.RightButton) {
                                             root.lastClickedRowText = String(entryDelegate.msgText)
                                             terminalContextMenu.popup()
+                                            mouse.accepted = true
                                             return
                                         }
+                                        // Ctrl / Shift clicks → line-level selection (original behaviour)
                                         if (mouse.modifiers & Qt.ShiftModifier && root.lastClickedRow >= 0) {
+                                            root.activeEditRow = -1
                                             selectRange(root.lastClickedRow, entryDelegate.index)
-                                        } else if (mouse.modifiers & Qt.ControlModifier) {
+                                            mouse.accepted = true
+                                            return
+                                        }
+                                        if (mouse.modifiers & Qt.ControlModifier) {
+                                            root.activeEditRow = -1
                                             toggleSelection(entryDelegate.entryIndex)
                                             root.lastClickedRow = entryDelegate.index
-                                        } else {
-                                            selectOnly(entryDelegate.entryIndex)
-                                            root.lastClickedRow = entryDelegate.index
+                                            mouse.accepted = true
+                                            return
                                         }
+                                        // Plain left click → activate char-level selection on this row
+                                        root.activeEditRow = entryDelegate.entryIndex
+                                        root.autoScroll = false
+                                        selectOnly(entryDelegate.entryIndex)
+                                        root.lastClickedRow = entryDelegate.index
+                                        // Calculate start position for drag selection
+                                        var localX = mouse.x - dataRow.x - editText.x
+                                        var localY = mouse.y - dataRow.y - editText.y
+                                        root._selStart = editText.positionAt(localX, localY)
+                                        editText.cursorPosition = root._selStart
+                                        editText.select(root._selStart, root._selStart) // clear previous selection
+                                    }
+                                    onPositionChanged: function(mouse) {
+                                        // Drag → update character selection
+                                        if (pressed && root.activeEditRow === entryDelegate.entryIndex && root._selStart >= 0) {
+                                            var localX = mouse.x - dataRow.x - editText.x
+                                            var localY = mouse.y - dataRow.y - editText.y
+                                            var pos = editText.positionAt(localX, localY)
+                                            editText.select(root._selStart, pos)
+                                        }
+                                    }
+                                    onReleased: function(mouse) {
+                                        root._selStart = -1
                                     }
                                     onWheel: function(wheel) {
                                         if ((wheel.modifiers & Qt.ControlModifier) && (wheel.modifiers & Qt.ShiftModifier)) {
@@ -1918,9 +1971,14 @@ Window {
                                                 root.terminalFontSize--
                                             wheel.accepted = true
                                         } else {
-                                            wheel.accepted = false
+                                            // Manual scroll (interactive is false)
+                                            var step = 60
+                                            terminalView.contentY = Math.max(0,
+                                                Math.min(terminalView.contentHeight - terminalView.height,
+                                                    terminalView.contentY - (wheel.angleDelta.y > 0 ? step : -step)))
                                             if (wheel.angleDelta.y > 0)
                                                 root.autoScroll = false
+                                            wheel.accepted = true
                                         }
                                     }
                                 }
@@ -2589,6 +2647,7 @@ Window {
         root.selectedSet = {}
         root.selectionVersion++
         root.lastClickedRow = -1
+        root.activeEditRow = -1
     }
 
     function selectAllEntries() {
@@ -2631,6 +2690,47 @@ Window {
         clearSelection()
     }
 
+    function copySelectedOrInlineText() {
+        // If a TextEdit has selected text, copy that (partial line)
+        if (root.activeEditRow >= 0) {
+            var item = terminalView.itemAtIndex !== undefined
+                ? terminalView.itemAtIndex(getModelIndexForEntry(root.activeEditRow))
+                : null
+            if (item) {
+                var et = item.children ? findEditText(item) : null
+                if (et && et.selectedText.length > 0) {
+                    copyToClipboardInline(et.selectedText)
+                    return
+                }
+            }
+        }
+        // Fallback: copy whole selected lines
+        copySelectedEntries()
+    }
+
+    function findEditText(item) {
+        // Walk children to find the editText TextEdit
+        for (var i = 0; i < item.children.length; i++) {
+            var child = item.children[i]
+            if (child.objectName === "editText") return child
+            // Check grandchildren (inside Row)
+            if (child.children) {
+                for (var j = 0; j < child.children.length; j++) {
+                    if (child.children[j].objectName === "editText")
+                        return child.children[j]
+                }
+            }
+        }
+        return null
+    }
+
+    function getModelIndexForEntry(entryIdx) {
+        for (var i = 0; i < terminalModel.count; i++) {
+            if (terminalModel.get(i).entryIndex === entryIdx) return i
+        }
+        return -1
+    }
+
     function copySelectedEntries() {
         var lines = []
         for (var i = 0; i < root.terminalEntries.length; i++) {
@@ -2669,6 +2769,16 @@ Window {
         // Show feedback in terminal
         var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
         addTerminalEntry(ts, "Copied to clipboard (" + text.split("\n").length + " lines)", "", "system")
+    }
+
+    function copyToClipboardInline(text) {
+        clipHelper.text = text
+        clipHelper.selectAll()
+        clipHelper.copy()
+        clipHelper.text = ""
+
+        var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+        addTerminalEntry(ts, "Copied to clipboard (" + text.length + " chars)", "", "system")
     }
 
     function copyAllEntries() {
