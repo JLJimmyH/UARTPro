@@ -1094,10 +1094,54 @@ Window {
                         Rectangle { Layout.fillWidth: true; height: 1; color: root.colorBorder }
 
                         // PORT
-                        Text {
-                            text: "PORT"
-                            font.family: root.fontMono; font.pixelSize: 10
-                            font.letterSpacing: 2; color: root.colorMutedFg
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+                            Text {
+                                text: "PORT"
+                                font.family: root.fontMono; font.pixelSize: 10
+                                font.letterSpacing: 2; color: root.colorMutedFg
+                            }
+                            Item { Layout.fillWidth: true }
+                            Rectangle {
+                                width: 20; height: 20
+                                color: refreshPortsMa.containsMouse ? root.colorMuted : "transparent"
+                                border.color: refreshPortsMa.containsMouse ? root.colorAccent : root.colorBorder
+                                border.width: 1
+
+                                Canvas {
+                                    anchors.centerIn: parent
+                                    width: 12; height: 12
+                                    onPaint: {
+                                        var ctx = getContext("2d")
+                                        ctx.clearRect(0, 0, width, height)
+                                        ctx.strokeStyle = refreshPortsMa.containsMouse ? root.colorAccent : root.colorMutedFg
+                                        ctx.lineWidth = 1.5
+                                        ctx.beginPath()
+                                        ctx.arc(6, 6, 4, -Math.PI * 0.5, Math.PI * 0.8)
+                                        ctx.stroke()
+                                        // arrow head
+                                        var tipX = 6 + 4 * Math.cos(Math.PI * 0.8)
+                                        var tipY = 6 + 4 * Math.sin(Math.PI * 0.8)
+                                        ctx.beginPath()
+                                        ctx.moveTo(tipX - 2.5, tipY - 1.5)
+                                        ctx.lineTo(tipX, tipY)
+                                        ctx.lineTo(tipX + 2, tipY - 2)
+                                        ctx.stroke()
+                                    }
+
+                                    property bool hovered: refreshPortsMa.containsMouse
+                                    onHoveredChanged: requestPaint()
+                                }
+
+                                MouseArea {
+                                    id: refreshPortsMa
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: serialManager.refreshPorts()
+                                }
+                            }
                         }
                         CyberComboBox {
                             id: portCombo
@@ -1236,10 +1280,10 @@ Window {
 
                         CyberButton {
                             Layout.fillWidth: true
-                            text: "REFRESH PORTS"
-                            accentColor: root.colorAccentTertiary
+                            text: "CLEAR TERMINAL"
+                            accentColor: root.colorDestructive
                             bgColor: root.colorBg; borderMutedColor: root.colorBorder
-                            onClicked: serialManager.refreshPorts()
+                            onClicked: clearTerminal()
                         }
 
                         CyberButton {
