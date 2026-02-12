@@ -1737,9 +1737,8 @@ Window {
 
                             function isAtBottom() {
                                 if (terminalModel.count === 0) return true
-                                var lastItem = itemAtIndex(terminalModel.count - 1)
-                                if (!lastItem) return false
-                                return (lastItem.y + lastItem.height) <= (contentY + height + 2)
+                                // Use ScrollBar position — reliable even when contentHeight is estimated
+                                return terminalScrollBar.position + terminalScrollBar.size >= 1.0 - 0.01
                             }
 
                             // Re-enable auto-scroll when reaching bottom
@@ -1753,6 +1752,7 @@ Window {
                                 id: scaleRepositionTimer
                                 interval: 80
                                 onTriggered: {
+                                    terminalView.forceLayout()
                                     if (root.autoScroll)
                                         terminalView.positionViewAtEnd()
                                 }
@@ -1764,6 +1764,7 @@ Window {
                             }
 
                             ScrollBar.vertical: ScrollBar {
+                                id: terminalScrollBar
                                 policy: ScrollBar.AsNeeded
                                 contentItem: Rectangle {
                                     implicitWidth: 6
@@ -1956,30 +1957,45 @@ Window {
                                     onReleased: function(mouse) {
                                         root._selStart = -1
                                     }
-                                    onWheel: function(wheel) {
-                                        if ((wheel.modifiers & Qt.ControlModifier) && (wheel.modifiers & Qt.ShiftModifier)) {
-                                            if (wheel.angleDelta.y > 0 && root.uiScale < 2.0)
-                                                root.uiScale = Math.round((root.uiScale + 0.1) * 10) / 10
-                                            else if (wheel.angleDelta.y < 0 && root.uiScale > 0.6)
-                                                root.uiScale = Math.round((root.uiScale - 0.1) * 10) / 10
-                                            wheel.accepted = true
-                                        } else if (wheel.modifiers & Qt.ControlModifier) {
-                                            if (wheel.angleDelta.y > 0 && root.terminalFontSize < 24)
-                                                root.terminalFontSize++
-                                            else if (wheel.angleDelta.y < 0 && root.terminalFontSize > 8)
-                                                root.terminalFontSize--
-                                            wheel.accepted = true
+                                }
+                            }
+                        }
+
+                        // Terminal-wide wheel handler — covers empty space too
+                        MouseArea {
+                            anchors.fill: parent
+                            z: 2
+                            acceptedButtons: Qt.NoButton
+                            onWheel: function(wheel) {
+                                if ((wheel.modifiers & Qt.ControlModifier) && (wheel.modifiers & Qt.ShiftModifier)) {
+                                    if (wheel.angleDelta.y > 0 && root.uiScale < 2.0)
+                                        root.uiScale = Math.round((root.uiScale + 0.1) * 10) / 10
+                                    else if (wheel.angleDelta.y < 0 && root.uiScale > 0.6)
+                                        root.uiScale = Math.round((root.uiScale - 0.1) * 10) / 10
+                                    wheel.accepted = true
+                                } else if (wheel.modifiers & Qt.ControlModifier) {
+                                    if (wheel.angleDelta.y > 0 && root.terminalFontSize < 24)
+                                        root.terminalFontSize++
+                                    else if (wheel.angleDelta.y < 0 && root.terminalFontSize > 8)
+                                        root.terminalFontSize--
+                                    wheel.accepted = true
+                                } else {
+                                    var step = 60
+                                    if (wheel.angleDelta.y > 0) {
+                                        // Scroll up
+                                        terminalView.contentY = Math.max(terminalView.originY, terminalView.contentY - step)
+                                        root.autoScroll = false
+                                    } else {
+                                        // Scroll down — use positionViewAtEnd() near bottom
+                                        // to avoid being clamped by estimated contentHeight
+                                        var maxY = terminalView.originY + terminalView.contentHeight - terminalView.height
+                                        if (terminalView.contentY + step >= maxY) {
+                                            terminalView.positionViewAtEnd()
                                         } else {
-                                            // Manual scroll (interactive is false)
-                                            var step = 60
-                                            terminalView.contentY = Math.max(0,
-                                                Math.min(terminalView.contentHeight - terminalView.height,
-                                                    terminalView.contentY - (wheel.angleDelta.y > 0 ? step : -step)))
-                                            if (wheel.angleDelta.y > 0)
-                                                root.autoScroll = false
-                                            wheel.accepted = true
+                                            terminalView.contentY = terminalView.contentY + step
                                         }
                                     }
+                                    wheel.accepted = true
                                 }
                             }
                         }
