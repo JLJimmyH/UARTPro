@@ -18,6 +18,14 @@ ConfigManager::ConfigManager(QObject *parent)
     connect(m_saveTimer, &QTimer::timeout, this, &ConfigManager::saveToFile);
 }
 
+ConfigManager::~ConfigManager()
+{
+    if (m_saveTimer->isActive()) {
+        m_saveTimer->stop();
+        saveToFile();
+    }
+}
+
 // ── Helpers ─────────────────────────────────────────
 
 QString ConfigManager::toLocalPath(const QString &path)

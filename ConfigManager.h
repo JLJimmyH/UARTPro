@@ -18,6 +18,7 @@ class ConfigManager : public QObject
 
 public:
     explicit ConfigManager(QObject *parent = nullptr);
+    ~ConfigManager() override;
 
     qreal uiScale() const;
     int terminalFontSize() const;

@@ -163,6 +163,7 @@ Window {
     property int searchCurrentIndex: -1
     property var searchMatches: []
     property bool autoScrollBeforeSearch: true
+    property bool helpPopupVisible: false
 
     // ── Baud / DataBits / StopBits / Parity models ────────────────
     readonly property var baudRates:  [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600]
@@ -172,9 +173,9 @@ Window {
     readonly property var lineEndings:  ["None", "CR", "LF", "CR+LF"]
 
     // ── Data Models ────────────────────────────────────────────────
-    ListModel { id: keywordModel }
-    ListModel { id: whitelistModel; onCountChanged: rebuildFilteredModel() }
-    ListModel { id: blacklistModel; onCountChanged: rebuildFilteredModel() }
+    ListModel { id: keywordModel;   onCountChanged: syncKeywordsToConfig() }
+    ListModel { id: whitelistModel; onCountChanged: { rebuildFilteredModel(); syncWhitelistToConfig() } }
+    ListModel { id: blacklistModel; onCountChanged: { rebuildFilteredModel(); syncBlacklistToConfig() } }
 
     // Hidden TextEdit for clipboard access
     TextEdit { id: clipHelper; visible: false }
@@ -826,6 +827,30 @@ Window {
                         font.letterSpacing: 2
                         font.bold: true
                         color: serialManager.connected ? root.colorAccent : root.colorMutedFg
+                    }
+                }
+
+                // ── Help button ─────────────────────────────
+                Rectangle {
+                    width: 46; height: 52
+                    color: helpMa.containsMouse ? root.colorMuted : "transparent"
+                    Behavior on color { ColorAnimation { duration: 100 } }
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "?"
+                        font.family: root.fontMono
+                        font.pixelSize: 16
+                        font.bold: true
+                        color: helpMa.containsMouse ? root.colorAccent : root.colorMutedFg
+                        Behavior on color { ColorAnimation { duration: 100 } }
+                    }
+
+                    MouseArea {
+                        id: helpMa
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        onClicked: root.helpPopupVisible = true
                     }
                 }
 
@@ -2389,6 +2414,81 @@ Window {
                 addTerminalEntry(ts, "Exported " + entries.length + " entries to file (" + (isCsv ? "CSV" : "TXT") + ")", "", "system")
             else
                 addTerminalEntry(ts, "Export failed", "", "error")
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // HELP POPUP
+    // ══════════════════════════════════════════════════════════════
+    Popup {
+        id: helpPopup
+        visible: root.helpPopupVisible
+        modal: true
+        anchors.centerIn: parent
+        width: 420
+        height: helpCol.implicitHeight + 48
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        onClosed: root.helpPopupVisible = false
+
+        background: Rectangle {
+            color: root.colorCard
+            border.color: root.colorAccent
+            border.width: 1
+            radius: 4
+        }
+
+        contentItem: Column {
+            id: helpCol
+            spacing: 6
+            padding: 16
+
+            Text {
+                text: "KEYBOARD SHORTCUTS"
+                font.family: root.fontMono
+                font.pixelSize: 14
+                font.bold: true
+                font.letterSpacing: 2
+                color: root.colorAccent
+                bottomPadding: 8
+            }
+
+            Repeater {
+                model: [
+                    { key: "Ctrl + L",         desc: "Clear terminal" },
+                    { key: "Ctrl + C",         desc: "Copy selected text" },
+                    { key: "Ctrl + F",         desc: "Find" },
+                    { key: "Escape",           desc: "Close search" },
+                    { key: "Ctrl + =",         desc: "Zoom in (terminal font)" },
+                    { key: "Ctrl + -",         desc: "Zoom out (terminal font)" },
+                    { key: "Ctrl + 0",         desc: "Reset zoom (terminal font)" },
+                    { key: "Ctrl + Shift + =", desc: "Scale up UI" },
+                    { key: "Ctrl + Shift + -", desc: "Scale down UI" },
+                    { key: "Ctrl + Shift + 0", desc: "Reset UI scale" },
+                    { key: "Space",            desc: "Toggle connection" },
+                    { key: "Enter",            desc: "Send / Search / Add filter" },
+                    { key: "Right-click",      desc: "Context menu" }
+                ]
+
+                Row {
+                    spacing: 12
+                    width: helpCol.width - 32
+
+                    Text {
+                        width: 160
+                        text: modelData.key
+                        font.family: root.fontMono
+                        font.pixelSize: 12
+                        color: root.colorAccentTertiary
+                        horizontalAlignment: Text.AlignRight
+                    }
+                    Text {
+                        text: modelData.desc
+                        font.family: root.fontMono
+                        font.pixelSize: 12
+                        color: root.colorFg
+                    }
+                }
+            }
         }
     }
 
