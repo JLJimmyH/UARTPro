@@ -263,7 +263,11 @@ Window {
     Shortcut {
         sequence: "Ctrl+C"
         context: Qt.ApplicationShortcut
-        onActivated: copySelectedOrInlineText()
+        onActivated: {
+            if (tryCopyFocusedTextInputSelection())
+                return
+            copySelectedOrInlineText()
+        }
     }
     Shortcut {
         sequence: "Ctrl+F"
@@ -3031,6 +3035,26 @@ Window {
         clearSelection()
     }
 
+    function tryCopyFocusedTextInputSelection() {
+        var focused = root.activeFocusItem
+        if (!focused)
+            return false
+
+        if (focused.selectedText === undefined)
+            return false
+
+        var selected = String(focused.selectedText)
+        if (selected.length === 0)
+            return false
+
+        if (focused.copy !== undefined)
+            focused.copy()
+        else
+            copyToClipboardInline(selected)
+
+        return true
+    }
+
     function copySelectedOrInlineText() {
         // If a TextEdit has selected text, copy that (partial line)
         if (root.activeEditRow >= 0) {
@@ -3075,8 +3099,9 @@ Window {
     function copySelectedEntries() {
         var lines = []
         for (var i = 0; i < root.terminalEntries.length; i++) {
-            if (root.selectedSet.hasOwnProperty(i)) {
-                lines.push(buildEntryText(root.terminalEntries[i]))
+            var entry = root.terminalEntries[i]
+            if (entry && root.selectedSet.hasOwnProperty(entry.entryIndex)) {
+                lines.push(buildEntryText(entry))
             }
         }
         if (lines.length > 0)
