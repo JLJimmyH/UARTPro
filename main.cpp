@@ -5,7 +5,6 @@
 #include <QQuickWindow>
 #include <QCommandLineParser>
 #include <QAbstractNativeEventFilter>
-#include <QPointer>
 #include <memory>
 #include "SerialPortManager.h"
 #include "FileLogger.h"
@@ -18,26 +17,19 @@
 class WindowsFramelessEventFilter : public QAbstractNativeEventFilter
 {
 public:
-    explicit WindowsFramelessEventFilter(QQuickWindow *window)
-        : m_window(window) {}
+    explicit WindowsFramelessEventFilter(HWND hwnd)
+        : m_hwnd(hwnd) {}
 
     bool nativeEventFilter(const QByteArray &eventType, void *message, qintptr *result) override
     {
-        if (!m_window || !m_window->handle())
+        if (!m_hwnd)
             return false;
 
         if (eventType != "windows_generic_MSG" && eventType != "windows_dispatcher_MSG")
             return false;
 
         MSG *msg = static_cast<MSG *>(message);
-        if (!msg)
-            return false;
-
-        const HWND windowHwnd = reinterpret_cast<HWND>(m_window->winId());
-        if (!windowHwnd)
-            return false;
-
-        if (msg->hwnd != windowHwnd)
+        if (!msg || msg->hwnd != m_hwnd)
             return false;
 
         if (msg->message == WM_NCCALCSIZE && msg->wParam == TRUE) {
@@ -49,7 +41,7 @@ public:
     }
 
 private:
-    QPointer<QQuickWindow> m_window;
+    HWND m_hwnd = nullptr;
 };
 
 static void enableSnapForFramelessWindow(HWND hwnd)
@@ -116,8 +108,9 @@ int main(int argc, char *argv[])
     if (!engine.rootObjects().isEmpty()) {
         auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
         if (window) {
-            enableSnapForFramelessWindow(reinterpret_cast<HWND>(window->winId()));
-            framelessEventFilter = std::make_unique<WindowsFramelessEventFilter>(window);
+            HWND hwnd = reinterpret_cast<HWND>(window->winId());
+            enableSnapForFramelessWindow(hwnd);
+            framelessEventFilter = std::make_unique<WindowsFramelessEventFilter>(hwnd);
             app.installNativeEventFilter(framelessEventFilter.get());
         }
     }
