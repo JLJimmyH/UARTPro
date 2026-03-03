@@ -2,11 +2,71 @@
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
+#include <QQuickWindow>
 #include <QCommandLineParser>
+#include <QAbstractNativeEventFilter>
+#include <QPointer>
+#include <memory>
 #include "SerialPortManager.h"
 #include "FileLogger.h"
 #include "ConfigManager.h"
 #include "version.h"
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+
+class WindowsFramelessEventFilter : public QAbstractNativeEventFilter
+{
+public:
+    explicit WindowsFramelessEventFilter(QQuickWindow *window)
+        : m_window(window) {}
+
+    bool nativeEventFilter(const QByteArray &eventType, void *message, qintptr *result) override
+    {
+        if (!m_window || !m_window->handle())
+            return false;
+
+        if (eventType != "windows_generic_MSG" && eventType != "windows_dispatcher_MSG")
+            return false;
+
+        MSG *msg = static_cast<MSG *>(message);
+        if (!msg)
+            return false;
+
+        const HWND windowHwnd = reinterpret_cast<HWND>(m_window->winId());
+        if (!windowHwnd)
+            return false;
+
+        if (msg->hwnd != windowHwnd)
+            return false;
+
+        if (msg->message == WM_NCCALCSIZE && msg->wParam == TRUE) {
+            *result = 0;
+            return true;
+        }
+
+        return false;
+    }
+
+private:
+    QPointer<QQuickWindow> m_window;
+};
+
+static void enableSnapForFramelessWindow(HWND hwnd)
+{
+    if (!hwnd)
+        return;
+
+    LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+    const LONG_PTR snapStyleBits = WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MINIMIZEBOX | WS_SYSMENU;
+    const LONG_PTR newStyle = (style | snapStyleBits) & ~static_cast<LONG_PTR>(WS_CAPTION);
+    if (newStyle != style) {
+        SetWindowLongPtrW(hwnd, GWL_STYLE, newStyle);
+        SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    }
+}
+#endif
 
 int main(int argc, char *argv[])
 {
@@ -50,6 +110,18 @@ int main(int argc, char *argv[])
                 QCoreApplication::exit(-1);
         }, Qt::QueuedConnection);
     engine.load(url);
+
+#ifdef Q_OS_WIN
+    std::unique_ptr<WindowsFramelessEventFilter> framelessEventFilter;
+    if (!engine.rootObjects().isEmpty()) {
+        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+        if (window) {
+            enableSnapForFramelessWindow(reinterpret_cast<HWND>(window->winId()));
+            framelessEventFilter = std::make_unique<WindowsFramelessEventFilter>(window);
+            app.installNativeEventFilter(framelessEventFilter.get());
+        }
+    }
+#endif
 
     return app.exec();
 }
