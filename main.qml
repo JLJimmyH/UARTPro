@@ -2743,6 +2743,7 @@ Window {
         nameFilters: ["Log files (*.log)", "Text files (*.txt)", "All files (*)"]
         onAccepted: {
             if (fileLogger.startLogging(selectedFile.toString())) {
+                logExistingEntriesToFile()
                 var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
                 addTerminalEntry(ts, "Logging started — " + fileLogger.logFilePath, "", "system")
             } else {
@@ -2899,6 +2900,35 @@ Window {
     // ══════════════════════════════════════════════════════════════
 
     // ── Entry & Filter ──────────────────────────────────────────
+    function getEntryPrefix(entryType) {
+        switch (String(entryType)) {
+        case "rx":     return "RX> "
+        case "tx":     return "TX> "
+        case "system": return "SYS> "
+        case "error":  return "ERR> "
+        default:        return "> "
+        }
+    }
+
+    function formatEntryForLog(entry) {
+        var textData = (root.hexDisplayMode && entry.hexData !== "")
+            ? entry.hexData : entry.msgText
+        var line = ""
+        if (root.showTimestamp)
+            line += "[" + (entry.timestamp || "") + "] "
+        if (root.showPrefix)
+            line += getEntryPrefix(entry.type)
+        line += String(textData)
+        return line
+    }
+
+    function logExistingEntriesToFile() {
+        if (!fileLogger.logging)
+            return
+        for (var i = 0; i < root.terminalEntries.length; i++)
+            fileLogger.logLine(formatEntryForLog(root.terminalEntries[i]))
+    }
+
     function addTerminalEntry(timestamp, data, hexData, type) {
         var entry = {
             timestamp: timestamp,
@@ -2910,7 +2940,7 @@ Window {
 
         // Log to file if active
         if (fileLogger.logging)
-            fileLogger.logEntry(timestamp, type, data, hexData || "")
+            fileLogger.logLine(formatEntryForLog(entry))
 
         var entries = root.terminalEntries
         entries.push(entry)

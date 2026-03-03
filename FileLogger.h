@@ -26,6 +26,7 @@ public:
 
     Q_INVOKABLE bool startLogging(const QString &filePath);
     Q_INVOKABLE void stopLogging();
+    Q_INVOKABLE void logLine(const QString &line);
     Q_INVOKABLE void logEntry(const QString &timestamp, const QString &type,
                               const QString &message, const QString &hexData);
     Q_INVOKABLE QString generateDefaultPath() const;

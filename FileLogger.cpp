@@ -100,16 +100,19 @@ void FileLogger::stopLogging()
 void FileLogger::logEntry(const QString &timestamp, const QString &type,
                           const QString &message, const QString &hexData)
 {
+    QString line = QStringLiteral("[") + timestamp + QStringLiteral("] ")
+                 + type.toUpper() + QStringLiteral("> ") + message;
+    if (!hexData.isEmpty())
+        line += QStringLiteral("  |HEX: ") + hexData;
+    logLine(line);
+}
+
+void FileLogger::logLine(const QString &line)
+{
     if (!isLogging() || !m_stream)
         return;
 
-    *m_stream << QStringLiteral("[") << timestamp << QStringLiteral("] ")
-              << type.toUpper() << QStringLiteral("> ") << message;
-
-    if (!hexData.isEmpty())
-        *m_stream << QStringLiteral("  |HEX: ") << hexData;
-
-    *m_stream << QStringLiteral("\n");
+    *m_stream << line << QStringLiteral("\n");
 }
 
 QString FileLogger::generateDefaultPath() const
