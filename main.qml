@@ -12,7 +12,7 @@ Window {
     visible: true
     title: appName + " // SERIAL TERMINAL v" + appVersion
     color: colorBg
-    flags: Qt.FramelessWindowHint | Qt.Window
+    flags: Qt.FramelessWindowHint | Qt.Window | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint
 
     // ── Frameless window state ────────────────────────────────────
     property bool isMaximized: false
