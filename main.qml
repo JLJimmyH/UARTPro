@@ -497,7 +497,7 @@ Window {
             }
         }
         MenuItem {
-            text: "  + INCLUDE IN FILTER"
+            text: "  + HAS FILTER"
             enabled: root.lastClickedRowText !== ""
             onTriggered: addFilter(root.lastClickedRowText, "include")
             contentItem: Text {
@@ -511,7 +511,7 @@ Window {
             }
         }
         MenuItem {
-            text: "  \u2212 EXCLUDE FROM FILTER"
+            text: "  \u2212 BAN FILTER"
             enabled: root.lastClickedRowText !== ""
             onTriggered: addFilter(root.lastClickedRowText, "exclude")
             contentItem: Text {
@@ -1201,6 +1201,421 @@ Window {
 
                         Rectangle { Layout.fillWidth: true; height: 1; color: root.colorBorder }
 
+                        // Section: FILTER BUILDER
+                        Text {
+                            text: "> FILTER BUILDER"
+                            font.family: root.fontMono; font.pixelSize: 11
+                            font.letterSpacing: 2; font.bold: true
+                            color: root.colorAccent
+                        }
+
+                        Rectangle { Layout.fillWidth: true; height: 1; color: root.colorBorder }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+
+                            CyberComboBox {
+                                id: filterTypeCombo
+                                Layout.preferredWidth: 108
+                                model: ["Highlight", "Filter"]
+                                currentIndex: 0
+                                accentColor: filterTypeCombo.currentIndex === 0 ? "#ffaa00" : root.colorAccent
+                                cardColor: root.colorCard; borderColor: root.colorBorder
+                                fgColor: root.colorFg; bgColor: root.colorBg
+                                mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
+                                font.pixelSize: 11
+                            }
+
+                            CyberComboBox {
+                                id: filterSubTypeCombo
+                                Layout.preferredWidth: 92
+                                model: ["Has", "Ban"]
+                                currentIndex: 0
+                                visible: filterTypeCombo.currentIndex === 1
+                                accentColor: filterSubTypeCombo.currentIndex === 0 ? root.colorAccent : root.colorDestructive
+                                cardColor: root.colorCard; borderColor: root.colorBorder
+                                fgColor: root.colorFg; bgColor: root.colorBg
+                                mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
+                                font.pixelSize: 11
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 4
+
+                            CyberTextField {
+                                id: filterInput
+                                Layout.fillWidth: true
+                                placeholderText: filterTypeCombo.currentIndex === 0 ? "highlight keyword..."
+                                               : filterSubTypeCombo.currentIndex === 0 ? "has filter..."
+                                               : "ban filter..."
+                                accentColor: filterTypeCombo.currentIndex === 0 ? "#ffaa00"
+                                           : filterSubTypeCombo.currentIndex === 0 ? root.colorAccent
+                                           : root.colorDestructive
+                                cardColor: root.colorCard; borderColor: root.colorBorder
+                                bgColor: root.colorBg; mutedFgColor: root.colorMutedFg
+                                font.pixelSize: 11
+
+                                Keys.onReturnPressed: addFilterFromInput()
+                                Keys.onEnterPressed: addFilterFromInput()
+                            }
+
+                            CyberButton {
+                                Layout.preferredWidth: 40
+                                text: "+"
+                                accentColor: filterTypeCombo.currentIndex === 0 ? "#ffaa00"
+                                           : filterSubTypeCombo.currentIndex === 0 ? root.colorAccent
+                                           : root.colorDestructive
+                                bgColor: root.colorBg; borderMutedColor: root.colorBorder
+                                font.pixelSize: 14
+                                onClicked: addFilterFromInput()
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 6
+                            visible: keywordModel.count > 0 || filterModel.count > 0
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+                                visible: keywordModel.count > 0
+
+                                Text {
+                                    text: "HIGHLIGHT"
+                                    font.family: root.fontMono
+                                    font.pixelSize: 9
+                                    font.letterSpacing: 1
+                                    font.bold: true
+                                    color: "#ffaa00"
+                                }
+
+                                Flow {
+                                    Layout.fillWidth: true
+                                    spacing: 4
+
+                                    Repeater {
+                                        model: keywordModel
+                                        delegate: Rectangle {
+                                            width: kwChipRow.implicitWidth + 20
+                                            height: 26
+                                            radius: 3
+                                            color: Qt.rgba(Qt.color(model.color).r, Qt.color(model.color).g, Qt.color(model.color).b,
+                                                           model.enabled ? 0.15 : 0.05)
+                                            border.color: model.enabled ? model.color
+                                                                        : Qt.rgba(Qt.color(model.color).r, Qt.color(model.color).g, Qt.color(model.color).b, 0.3)
+                                            border.width: 1
+                                            opacity: model.enabled ? 1.0 : 0.5
+
+                                            MouseArea {
+                                                anchors.fill: parent
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: {
+                                                    keywordModel.setProperty(index, "enabled", !model.enabled)
+                                                    root.keywordRevision++
+                                                    syncKeywordsToConfig()
+                                                }
+                                            }
+
+                                            Row {
+                                                id: kwChipRow
+                                                anchors.centerIn: parent
+                                                spacing: 6
+
+                                                Rectangle {
+                                                    width: 14; height: 14
+                                                    radius: 3
+                                                    color: model.color
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    MouseArea {
+                                                        anchors.fill: parent
+                                                        anchors.margins: -3
+                                                        cursorShape: Qt.PointingHandCursor
+                                                        onClicked: {
+                                                            colorPickerPopup.targetIndex = index
+                                                            var pos = parent.mapToItem(root.contentItem, 0, 0)
+                                                            colorPickerPopup.x = pos.x
+                                                            colorPickerPopup.y = pos.y + 20
+                                                            colorPickerPopup.open()
+                                                        }
+                                                    }
+                                                }
+
+                                                Text {
+                                                    text: model.mode === "bg" ? "BG" : model.mode === "text" ? "FG" : "LN"
+                                                    font.family: root.fontMono; font.pixelSize: 10; font.bold: true
+                                                    color: model.color
+                                                    opacity: 0.7
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    MouseArea {
+                                                        anchors.fill: parent
+                                                        anchors.margins: -3
+                                                        cursorShape: Qt.PointingHandCursor
+                                                        onClicked: {
+                                                            var modes = ["bg", "text", "line"]
+                                                            var cur = modes.indexOf(model.mode)
+                                                            var next = modes[(cur + 1) % modes.length]
+                                                            keywordModel.setProperty(index, "mode", next)
+                                                            root.keywordRevision++
+                                                            syncKeywordsToConfig()
+                                                        }
+                                                    }
+                                                }
+
+                                                Text {
+                                                    text: model.text
+                                                    font.family: root.fontMono; font.pixelSize: 11
+                                                    color: model.color
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                }
+
+                                                Text {
+                                                    text: model.enabled ? "👁" : "⦸"
+                                                    font.family: root.fontMono; font.pixelSize: 11
+                                                    color: model.enabled ? model.color : root.colorMutedFg
+                                                    opacity: 0.9
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    MouseArea {
+                                                        anchors.fill: parent
+                                                        anchors.margins: -4
+                                                        hoverEnabled: true
+                                                        cursorShape: Qt.PointingHandCursor
+                                                        onClicked: {
+                                                            keywordModel.setProperty(index, "enabled", !model.enabled)
+                                                            root.keywordRevision++
+                                                            syncKeywordsToConfig()
+                                                        }
+                                                    }
+                                                }
+
+                                                Text {
+                                                    text: "✕"
+                                                    font.family: root.fontMono; font.pixelSize: 11
+                                                    font.bold: true
+                                                    color: root.colorDestructive
+                                                    opacity: kwChipMa.containsMouse ? 1.0 : 0.5
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    MouseArea {
+                                                        id: kwChipMa
+                                                        anchors.fill: parent
+                                                        anchors.margins: -4
+                                                        hoverEnabled: true
+                                                        cursorShape: Qt.PointingHandCursor
+                                                        onClicked: {
+                                                            root.keywordRevision++
+                                                            keywordModel.remove(index)
+                                                            syncKeywordsToConfig()
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+                                visible: includeFlow.implicitHeight > 0
+
+                                Text {
+                                    text: "HAS"
+                                    font.family: root.fontMono
+                                    font.pixelSize: 9
+                                    font.letterSpacing: 1
+                                    font.bold: true
+                                    color: root.colorAccent
+                                }
+
+                                Flow {
+                                    id: includeFlow
+                                    Layout.fillWidth: true
+                                    spacing: 4
+
+                                    Repeater {
+                                        model: filterModel
+                                        delegate: Rectangle {
+                                            visible: model.filterType === "include"
+                                            property color chipColor: root.colorAccent
+
+                                            width: flChipRow.implicitWidth + 20
+                                            height: 26
+                                            radius: 3
+                                            color: Qt.rgba(chipColor.r, chipColor.g, chipColor.b,
+                                                           model.enabled ? 0.15 : 0.05)
+                                            border.color: model.enabled ? chipColor
+                                                                        : Qt.rgba(chipColor.r, chipColor.g, chipColor.b, 0.3)
+                                            border.width: 1
+                                            opacity: model.enabled ? 1.0 : 0.5
+
+                                            MouseArea {
+                                                anchors.fill: parent
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: {
+                                                    filterModel.setProperty(index, "enabled", !model.enabled)
+                                                    rebuildFilteredModel()
+                                                    syncFiltersToConfig()
+                                                }
+                                            }
+
+                                            Row {
+                                                id: flChipRow
+                                                anchors.centerIn: parent
+                                                spacing: 6
+
+                                                Text {
+                                                    text: "+ " + model.text
+                                                    font.family: root.fontMono; font.pixelSize: 11
+                                                    color: chipColor
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                }
+
+                                                Text {
+                                                    text: model.enabled ? "👁" : "⦸"
+                                                    font.family: root.fontMono; font.pixelSize: 11
+                                                    color: model.enabled ? chipColor : root.colorMutedFg
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    MouseArea {
+                                                        anchors.fill: parent
+                                                        anchors.margins: -4
+                                                        hoverEnabled: true
+                                                        cursorShape: Qt.PointingHandCursor
+                                                        onClicked: {
+                                                            filterModel.setProperty(index, "enabled", !model.enabled)
+                                                            rebuildFilteredModel()
+                                                            syncFiltersToConfig()
+                                                        }
+                                                    }
+                                                }
+
+                                                Text {
+                                                    text: "✕"
+                                                    font.family: root.fontMono; font.pixelSize: 11
+                                                    font.bold: true
+                                                    color: root.colorDestructive
+                                                    opacity: includeChipMa.containsMouse ? 1.0 : 0.5
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    MouseArea {
+                                                        id: includeChipMa
+                                                        anchors.fill: parent
+                                                        anchors.margins: -4
+                                                        hoverEnabled: true
+                                                        cursorShape: Qt.PointingHandCursor
+                                                        onClicked: { filterModel.remove(index); syncFiltersToConfig() }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 4
+                                visible: excludeFlow.implicitHeight > 0
+
+                                Text {
+                                    text: "BAN"
+                                    font.family: root.fontMono
+                                    font.pixelSize: 9
+                                    font.letterSpacing: 1
+                                    font.bold: true
+                                    color: root.colorDestructive
+                                }
+
+                                Flow {
+                                    id: excludeFlow
+                                    Layout.fillWidth: true
+                                    spacing: 4
+
+                                    Repeater {
+                                        model: filterModel
+                                        delegate: Rectangle {
+                                            visible: model.filterType === "exclude"
+                                            property color chipColor: root.colorDestructive
+
+                                            width: flChipRowEx.implicitWidth + 20
+                                            height: 26
+                                            radius: 3
+                                            color: Qt.rgba(chipColor.r, chipColor.g, chipColor.b,
+                                                           model.enabled ? 0.15 : 0.05)
+                                            border.color: model.enabled ? chipColor
+                                                                        : Qt.rgba(chipColor.r, chipColor.g, chipColor.b, 0.3)
+                                            border.width: 1
+                                            opacity: model.enabled ? 1.0 : 0.5
+
+                                            MouseArea {
+                                                anchors.fill: parent
+                                                cursorShape: Qt.PointingHandCursor
+                                                onClicked: {
+                                                    filterModel.setProperty(index, "enabled", !model.enabled)
+                                                    rebuildFilteredModel()
+                                                    syncFiltersToConfig()
+                                                }
+                                            }
+
+                                            Row {
+                                                id: flChipRowEx
+                                                anchors.centerIn: parent
+                                                spacing: 6
+
+                                                Text {
+                                                    text: "− " + model.text
+                                                    font.family: root.fontMono; font.pixelSize: 11
+                                                    color: chipColor
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                }
+
+                                                Text {
+                                                    text: model.enabled ? "👁" : "⦸"
+                                                    font.family: root.fontMono; font.pixelSize: 11
+                                                    color: model.enabled ? chipColor : root.colorMutedFg
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    MouseArea {
+                                                        anchors.fill: parent
+                                                        anchors.margins: -4
+                                                        hoverEnabled: true
+                                                        cursorShape: Qt.PointingHandCursor
+                                                        onClicked: {
+                                                            filterModel.setProperty(index, "enabled", !model.enabled)
+                                                            rebuildFilteredModel()
+                                                            syncFiltersToConfig()
+                                                        }
+                                                    }
+                                                }
+
+                                                Text {
+                                                    text: "✕"
+                                                    font.family: root.fontMono; font.pixelSize: 11
+                                                    font.bold: true
+                                                    color: root.colorDestructive
+                                                    opacity: excludeChipMa.containsMouse ? 1.0 : 0.5
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    MouseArea {
+                                                        id: excludeChipMa
+                                                        anchors.fill: parent
+                                                        anchors.margins: -4
+                                                        hoverEnabled: true
+                                                        cursorShape: Qt.PointingHandCursor
+                                                        onClicked: { filterModel.remove(index); syncFiltersToConfig() }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Item { height: 8 }
+
+                        Rectangle { Layout.fillWidth: true; height: 1; color: root.colorBorder }
+
                         // Section: OPTIONS
                         Text {
                             text: "> OPTIONS"
@@ -1379,17 +1794,6 @@ Window {
                                     NumberAnimation { to: 0.3; duration: 600 }
                                     NumberAnimation { to: 1.0; duration: 600 }
                                 }
-                            }
-
-                            // Filter indicator
-                            Text {
-                                visible: filterModel.count > 0
-                                text: "[FILTERED " + terminalModel.count + "/" + root.terminalEntries.length + "]"
-                                font.family: root.fontMono
-                                font.pixelSize: 10
-                                font.letterSpacing: 1
-                                font.bold: true
-                                color: "#ffaa00"
                             }
 
                             Text {
@@ -1644,279 +2048,6 @@ Window {
                     }
 
                     Rectangle { Layout.fillWidth: true; height: root.searchBarVisible ? 1 : 0; color: root.colorBorder }
-
-                    // ── Filter Toolbar ─────────────────────────────
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: filterToolbarCol.implicitHeight
-                        color: root.colorCard
-                        visible: Layout.preferredHeight > 0
-
-                        ColumnLayout {
-                            id: filterToolbarCol
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.leftMargin: 8
-                            anchors.rightMargin: 8
-                            anchors.verticalCenter: parent.verticalCenter
-                            spacing: 4
-
-                            // Input row
-                            RowLayout {
-                                Layout.fillWidth: true
-                                Layout.topMargin: 6
-                                spacing: 4
-
-                                CyberComboBox {
-                                    id: filterTypeCombo
-                                    Layout.preferredWidth: 120
-                                    model: ["Highlight", "Filter"]
-                                    currentIndex: 0
-                                    accentColor: filterTypeCombo.currentIndex === 0 ? "#ffaa00" : root.colorAccent
-                                    cardColor: root.colorCard; borderColor: root.colorBorder
-                                    fgColor: root.colorFg; bgColor: root.colorBg
-                                    mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
-                                    font.pixelSize: 11
-                                }
-
-                                CyberComboBox {
-                                    id: filterSubTypeCombo
-                                    Layout.preferredWidth: 100
-                                    model: ["Include", "Exclude"]
-                                    currentIndex: 0
-                                    visible: filterTypeCombo.currentIndex === 1
-                                    accentColor: filterSubTypeCombo.currentIndex === 0 ? root.colorAccent : root.colorDestructive
-                                    cardColor: root.colorCard; borderColor: root.colorBorder
-                                    fgColor: root.colorFg; bgColor: root.colorBg
-                                    mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
-                                    font.pixelSize: 11
-                                }
-
-                                CyberTextField {
-                                    id: filterInput
-                                    Layout.fillWidth: true
-                                    placeholderText: filterTypeCombo.currentIndex === 0 ? "highlight keyword..."
-                                                   : filterSubTypeCombo.currentIndex === 0 ? "include filter..."
-                                                   : "exclude filter..."
-                                    accentColor: filterTypeCombo.currentIndex === 0 ? "#ffaa00"
-                                               : filterSubTypeCombo.currentIndex === 0 ? root.colorAccent
-                                               : root.colorDestructive
-                                    cardColor: root.colorCard; borderColor: root.colorBorder
-                                    bgColor: root.colorBg; mutedFgColor: root.colorMutedFg
-                                    font.pixelSize: 11
-
-                                    Keys.onReturnPressed: addFilterFromInput()
-                                    Keys.onEnterPressed: addFilterFromInput()
-                                }
-
-                                CyberButton {
-                                    Layout.preferredWidth: 40
-                                    text: "+"
-                                    accentColor: filterTypeCombo.currentIndex === 0 ? "#ffaa00"
-                                               : filterSubTypeCombo.currentIndex === 0 ? root.colorAccent
-                                               : root.colorDestructive
-                                    bgColor: root.colorBg; borderMutedColor: root.colorBorder
-                                    font.pixelSize: 14
-                                    onClicked: addFilterFromInput()
-                                }
-                            }
-
-                            // Chips area — only visible when there are chips
-                            Flow {
-                                Layout.fillWidth: true
-                                Layout.bottomMargin: 6
-                                spacing: 4
-                                visible: keywordModel.count > 0 || filterModel.count > 0
-
-                                // Keyword chips
-                                Repeater {
-                                    model: keywordModel
-                                    delegate: Rectangle {
-                                        width: kwChipRow.implicitWidth + 20
-                                        height: 26
-                                        radius: 3
-                                        color: Qt.rgba(Qt.color(model.color).r, Qt.color(model.color).g, Qt.color(model.color).b,
-                                                       model.enabled ? 0.15 : 0.05)
-                                        border.color: model.enabled ? model.color
-                                                                    : Qt.rgba(Qt.color(model.color).r, Qt.color(model.color).g, Qt.color(model.color).b, 0.3)
-                                        border.width: 1
-                                        opacity: model.enabled ? 1.0 : 0.5
-
-                                        Row {
-                                            id: kwChipRow
-                                            anchors.centerIn: parent
-                                            spacing: 6
-
-                                            // Color swatch
-                                            Rectangle {
-                                                width: 14; height: 14
-                                                radius: 3
-                                                color: model.color
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                MouseArea {
-                                                    anchors.fill: parent
-                                                    anchors.margins: -3
-                                                    cursorShape: Qt.PointingHandCursor
-                                                    onClicked: {
-                                                        colorPickerPopup.targetIndex = index
-                                                        var pos = parent.mapToItem(root.contentItem, 0, 0)
-                                                        colorPickerPopup.x = pos.x
-                                                        colorPickerPopup.y = pos.y + 20
-                                                        colorPickerPopup.open()
-                                                    }
-                                                }
-                                            }
-
-                                            // Mode label (click to cycle: bg → text → line → bg)
-                                            Text {
-                                                text: model.mode === "bg" ? "BG" : model.mode === "text" ? "FG" : "LN"
-                                                font.family: root.fontMono; font.pixelSize: 10; font.bold: true
-                                                color: model.color
-                                                opacity: 0.7
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                MouseArea {
-                                                    anchors.fill: parent
-                                                    anchors.margins: -3
-                                                    cursorShape: Qt.PointingHandCursor
-                                                    onClicked: {
-                                                        var modes = ["bg", "text", "line"]
-                                                        var cur = modes.indexOf(model.mode)
-                                                        var next = modes[(cur + 1) % modes.length]
-                                                        keywordModel.setProperty(index, "mode", next)
-                                                        root.keywordRevision++
-                                                        syncKeywordsToConfig()
-                                                    }
-                                                }
-                                            }
-
-                                            // Keyword text
-                                            Text {
-                                                text: model.text
-                                                font.family: root.fontMono; font.pixelSize: 11
-                                                color: model.color
-                                                anchors.verticalCenter: parent.verticalCenter
-                                            }
-
-                                            // Enabled toggle (ON/OFF)
-                                            Text {
-                                                text: model.enabled ? "ON" : "OFF"
-                                                font.family: root.fontMono; font.pixelSize: 9; font.bold: true
-                                                color: model.enabled ? model.color : root.colorMutedFg
-                                                opacity: model.enabled ? 0.9 : 0.65
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                MouseArea {
-                                                    anchors.fill: parent
-                                                    anchors.margins: -4
-                                                    hoverEnabled: true
-                                                    cursorShape: Qt.PointingHandCursor
-                                                    onClicked: {
-                                                        keywordModel.setProperty(index, "enabled", !model.enabled)
-                                                        root.keywordRevision++
-                                                        syncKeywordsToConfig()
-                                                    }
-                                                }
-                                            }
-
-                                            // Delete button
-                                            Text {
-                                                text: "\u2715"
-                                                font.family: root.fontMono; font.pixelSize: 11
-                                                font.bold: true
-                                                color: root.colorDestructive
-                                                opacity: kwChipMa.containsMouse ? 1.0 : 0.5
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                MouseArea {
-                                                    id: kwChipMa
-                                                    anchors.fill: parent
-                                                    anchors.margins: -4
-                                                    hoverEnabled: true
-                                                    cursorShape: Qt.PointingHandCursor
-                                                    onClicked: {
-                                                        root.keywordRevision++
-                                                        keywordModel.remove(index)
-                                                        syncKeywordsToConfig()
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Filter chips (unified include/exclude)
-                                Repeater {
-                                    model: filterModel
-                                    delegate: Rectangle {
-                                        property bool isInclude: model.filterType === "include"
-                                        property color chipColor: isInclude ? root.colorAccent : root.colorDestructive
-
-                                        width: flChipRow.implicitWidth + 20
-                                        height: 26
-                                        radius: 3
-                                        color: Qt.rgba(chipColor.r, chipColor.g, chipColor.b,
-                                                       model.enabled ? 0.15 : 0.05)
-                                        border.color: model.enabled ? chipColor
-                                                                    : Qt.rgba(chipColor.r, chipColor.g, chipColor.b, 0.3)
-                                        border.width: 1
-                                        opacity: model.enabled ? 1.0 : 0.5
-
-                                        Row {
-                                            id: flChipRow
-                                            anchors.centerIn: parent
-                                            spacing: 6
-
-                                            // +/- prefix and text
-                                            Text {
-                                                text: (isInclude ? "+" : "\u2212") + " " + model.text
-                                                font.family: root.fontMono; font.pixelSize: 11
-                                                color: chipColor
-                                                anchors.verticalCenter: parent.verticalCenter
-                                            }
-
-                                            // Enabled toggle (ON/OFF)
-                                            Text {
-                                                text: model.enabled ? "ON" : "OFF"
-                                                font.family: root.fontMono; font.pixelSize: 9; font.bold: true
-                                                color: model.enabled ? chipColor : root.colorMutedFg
-                                                opacity: model.enabled ? 0.9 : 0.65
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                MouseArea {
-                                                    anchors.fill: parent
-                                                    anchors.margins: -4
-                                                    hoverEnabled: true
-                                                    cursorShape: Qt.PointingHandCursor
-                                                    onClicked: {
-                                                        filterModel.setProperty(index, "enabled", !model.enabled)
-                                                        rebuildFilteredModel()
-                                                        syncFiltersToConfig()
-                                                    }
-                                                }
-                                            }
-
-                                            // Delete
-                                            Text {
-                                                text: "\u2715"
-                                                font.family: root.fontMono; font.pixelSize: 11
-                                                font.bold: true
-                                                color: root.colorDestructive
-                                                opacity: flChipMa.containsMouse ? 1.0 : 0.5
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                MouseArea {
-                                                    id: flChipMa
-                                                    anchors.fill: parent
-                                                    anchors.margins: -4
-                                                    hoverEnabled: true
-                                                    cursorShape: Qt.PointingHandCursor
-                                                    onClicked: { filterModel.remove(index); syncFiltersToConfig() }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Rectangle { Layout.fillWidth: true; height: 1; color: root.colorBorder }
 
                     // Terminal output area
                     Item {
