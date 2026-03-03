@@ -7,8 +7,8 @@ Window {
     id: root
     width: 1200
     height: 800
-    minimumWidth: 900
-    minimumHeight: 600
+    minimumWidth: 320
+    minimumHeight: 56
     visible: true
     title: appName + " // SERIAL TERMINAL v" + appVersion
     color: colorBg
@@ -35,6 +35,18 @@ Window {
     }
     function minimizeWindow() { root.showMinimized() }
     function closeWindow()    { root.close() }
+
+    function adjustLeftPanelForWindowWidth() {
+        if (root.width <= root.leftPanelAutoCollapseWidth) {
+            if (!root.leftPanelCollapsed) {
+                root.leftPanelCollapsed = true
+                root.leftPanelAutoCollapsed = true
+            }
+        } else if (root.leftPanelAutoCollapsed) {
+            root.leftPanelCollapsed = false
+            root.leftPanelAutoCollapsed = false
+        }
+    }
 
     // ── Theme System ────────────────────────────────────────────────
     property int currentTheme: 4
@@ -136,6 +148,14 @@ Window {
     property string lastClickedRowText: ""
     property string exportMode: "filtered"
     property bool leftPanelCollapsed: false
+    property bool leftPanelAutoCollapsed: false
+    property int leftPanelAutoCollapseWidth: 980
+    property int ultraNarrowWidth: 860
+    readonly property bool ultraNarrowMode: root.width <= root.ultraNarrowWidth
+    property int titleOnlyHeightThreshold: 64
+    readonly property bool titleOnlyMode: root.height <= root.titleOnlyHeightThreshold
+
+    onWidthChanged: adjustLeftPanelForWindowWidth()
 
     // ── Config sync handlers ─────────────────────────────────────
     onCurrentThemeChanged: if (configManager) configManager.currentTheme = currentTheme
@@ -630,37 +650,37 @@ Window {
             border.color: root.colorBorder
             border.width: 1
 
-            // Drag to move window
-            DragHandler {
-                target: null
-                onActiveChanged: if (active) root.startSystemMove()
-            }
-            // Double-tap to maximize/restore
-            TapHandler {
-                onDoubleTapped: root.toggleMaximize()
-                gesturePolicy: TapHandler.DragThreshold
+            // Windows-like title bar behavior for frameless window
+            MouseArea {
+                anchors.fill: parent
+                acceptedButtons: Qt.LeftButton
+                onPressed: {
+                    if (mouse.button === Qt.LeftButton)
+                        root.startSystemMove()
+                }
+                onDoubleClicked: root.toggleMaximize()
             }
 
             RowLayout {
                 anchors.fill: parent
-                anchors.leftMargin: 20
+                anchors.leftMargin: root.titleOnlyMode ? 10 : 20
                 anchors.rightMargin: 0
-                spacing: 12
+                spacing: root.titleOnlyMode ? 8 : 12
 
                 // Glitch title
                 Item {
-                    Layout.preferredWidth: 160
+                    Layout.preferredWidth: root.ultraNarrowMode ? 110 : 160
                     Layout.fillHeight: true
 
                     // Magenta ghost
                     Text {
                         anchors.centerIn: parent
                         anchors.horizontalCenterOffset: glitchAnim.offset
-                        text: "UART PRO"
+                        text: root.ultraNarrowMode ? "UART" : "UART PRO"
                         font.family: root.fontMono
-                        font.pixelSize: 22
+                        font.pixelSize: root.ultraNarrowMode ? 18 : 22
                         font.bold: true
-                        font.letterSpacing: 8
+                        font.letterSpacing: root.ultraNarrowMode ? 4 : 8
                         color: root.colorAccentSecondary
                         opacity: 0.5
                     }
@@ -668,22 +688,22 @@ Window {
                     Text {
                         anchors.centerIn: parent
                         anchors.horizontalCenterOffset: -glitchAnim.offset
-                        text: "UART PRO"
+                        text: root.ultraNarrowMode ? "UART" : "UART PRO"
                         font.family: root.fontMono
-                        font.pixelSize: 22
+                        font.pixelSize: root.ultraNarrowMode ? 18 : 22
                         font.bold: true
-                        font.letterSpacing: 8
+                        font.letterSpacing: root.ultraNarrowMode ? 4 : 8
                         color: root.colorAccentTertiary
                         opacity: 0.5
                     }
                     // Main text
                     Text {
                         anchors.centerIn: parent
-                        text: "UART PRO"
+                        text: root.ultraNarrowMode ? "UART" : "UART PRO"
                         font.family: root.fontMono
-                        font.pixelSize: 22
+                        font.pixelSize: root.ultraNarrowMode ? 18 : 22
                         font.bold: true
-                        font.letterSpacing: 8
+                        font.letterSpacing: root.ultraNarrowMode ? 4 : 8
                         color: root.colorFg
                     }
 
@@ -707,6 +727,7 @@ Window {
 
                 // Subtitle — dynamic: shows port info when connected
                 Text {
+                    visible: !root.ultraNarrowMode
                     text: serialManager.connected
                           ? (portCombo.currentText.split(" - ")[0] + " @ " + baudCombo.currentText)
                           : "// SERIAL TERMINAL INTERFACE"
@@ -721,6 +742,7 @@ Window {
                 // Theme switcher
                 Rectangle {
                     id: themeSwitcherBtn
+                    visible: !root.titleOnlyMode
                     width: themeLabel.width + themeSwatches.width + 24
                     height: 26
                     color: themeMa.containsMouse || themePopup.visible ? root.colorMuted : "transparent"
@@ -866,6 +888,7 @@ Window {
 
                 // Connection status indicator
                 Row {
+                    visible: !root.titleOnlyMode
                     spacing: 8
                     Rectangle {
                         id: statusDot
@@ -893,6 +916,7 @@ Window {
 
                 // ── Help button ─────────────────────────────
                 Rectangle {
+                    visible: !root.titleOnlyMode
                     width: 46; height: 52
                     color: helpMa.containsMouse ? root.colorMuted : "transparent"
                     Behavior on color { ColorAnimation { duration: 100 } }
@@ -1038,8 +1062,11 @@ Window {
 
         // ── CONTENT AREA ──────────────────────────────────────────
         RowLayout {
+            id: mainContentArea
+            visible: !root.titleOnlyMode
             Layout.fillWidth: true
-            Layout.fillHeight: true
+            Layout.fillHeight: !root.titleOnlyMode
+            Layout.preferredHeight: root.titleOnlyMode ? 0 : -1
             spacing: 0
 
             // ════════════════════════════════════════════════════════
@@ -1765,7 +1792,11 @@ Window {
                                 MouseArea {
                                     anchors.fill: parent
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: root.leftPanelCollapsed = !root.leftPanelCollapsed
+                                    onClicked: {
+                                        root.leftPanelCollapsed = !root.leftPanelCollapsed
+                                        if (!root.leftPanelCollapsed)
+                                            root.leftPanelAutoCollapsed = false
+                                    }
                                 }
                             }
 
@@ -3433,6 +3464,7 @@ Window {
     // Boot sequence on startup
     Component.onCompleted: {
         loadConfigToUI()
+        adjustLeftPanelForWindowWidth()
         var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
         addTerminalEntry(ts, appName + " v" + appVersion + " // SERIAL TERMINAL INTERFACE", "", "system")
         addTerminalEntry(ts, "System initialized. Ready for connection.", "", "system")
