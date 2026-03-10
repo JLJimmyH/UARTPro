@@ -98,6 +98,12 @@ Window {
             bg: "#282c34", fg: "#abb2bf", card: "#21252b", muted: "#2c313a",
             mutedFg: "#5c6370", accent: "#61afef", accentSecondary: "#c678dd",
             accentTertiary: "#56b6c2", border: "#3e4452", destructive: "#e06c75"
+        },
+        {
+            name: "SHELL",
+            bg: "#282c34", fg: "#dcdfe4", card: "#1e2228", muted: "#333842",
+            mutedFg: "#7f848e", accent: "#dcdfe4", accentSecondary: "#9cdcfe",
+            accentTertiary: "#4ec9b0", border: "#3e4451", destructive: "#f44747"
         }
     ]
 

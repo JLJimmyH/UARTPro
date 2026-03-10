@@ -275,7 +275,7 @@ void ConfigManager::setTerminalFontSize(int value)
 
 void ConfigManager::setCurrentTheme(int value)
 {
-    value = qBound(0, value, 7);
+    value = qBound(0, value, 8);
     if (m_currentTheme == value) return;
     m_currentTheme = value;
     emit currentThemeChanged();
