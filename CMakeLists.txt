@@ -29,6 +29,7 @@ qt_add_qml_module(${PROJECT_NAME}
         CyberComboBox.qml
         CyberCheckBox.qml
         CyberTextField.qml
+        EyeIcon.qml
 )
 
 set_target_properties(${PROJECT_NAME} PROPERTIES

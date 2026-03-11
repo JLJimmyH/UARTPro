@@ -182,6 +182,7 @@ Window {
     property int activeEditRow: -1      // entryIndex of the row in text-select mode
     property int _selStart: -1          // character selection start position
     property int keywordRevision: 0
+    property int filterRevision: 0
     property int kwColorIndex: 0
     readonly property var kwPalette: ["#ff3366", "#ffaa00", "#00ff88", "#00d4ff",
                                       "#ff00ff", "#ffff00", "#ff6600", "#aa66ff"]
@@ -204,7 +205,7 @@ Window {
 
     // ── Data Models ────────────────────────────────────────────────
     ListModel { id: keywordModel;  onCountChanged: { root.keywordRevision++; syncKeywordsToConfig() } }
-    ListModel { id: filterModel;   onCountChanged: { rebuildFilteredModel(); syncFiltersToConfig() } }
+    ListModel { id: filterModel;   onCountChanged: { root.filterRevision++; rebuildFilteredModel(); syncFiltersToConfig() } }
 
     // Hidden TextEdit for clipboard access
     TextEdit { id: clipHelper; visible: false }
@@ -1405,11 +1406,10 @@ Window {
                                                     anchors.verticalCenter: parent.verticalCenter
                                                 }
 
-                                                Text {
-                                                    text: model.enabled ? "👁" : "⦸"
-                                                    font.family: root.fontMono; font.pixelSize: 11
-                                                    color: model.enabled ? model.color : root.colorMutedFg
-                                                    opacity: 0.9
+                                                EyeIcon {
+                                                    open: model.enabled
+                                                    iconColor: model.enabled ? model.color : root.colorMutedFg
+                                                    opacity: model.enabled ? 0.9 : 0.5
                                                     anchors.verticalCenter: parent.verticalCenter
                                                     MouseArea {
                                                         anchors.fill: parent
@@ -1455,13 +1455,49 @@ Window {
                                 spacing: 4
                                 visible: includeFlow.implicitHeight > 0
 
-                                Text {
-                                    text: "HAS"
-                                    font.family: root.fontMono
-                                    font.pixelSize: 9
-                                    font.letterSpacing: 1
-                                    font.bold: true
-                                    color: root.colorAccent
+                                Row {
+                                    spacing: 6
+                                    Text {
+                                        text: "HAS"
+                                        font.family: root.fontMono
+                                        font.pixelSize: 9
+                                        font.letterSpacing: 1
+                                        font.bold: true
+                                        color: root.colorAccent
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                    EyeIcon {
+                                        property bool allEnabled: {
+                                            root.filterRevision
+                                            var count = 0, enabledCount = 0
+                                            for (var i = 0; i < filterModel.count; i++) {
+                                                if (filterModel.get(i).filterType === "include") {
+                                                    count++
+                                                    if (filterModel.get(i).enabled) enabledCount++
+                                                }
+                                            }
+                                            return count > 0 && enabledCount === count
+                                        }
+                                        open: allEnabled
+                                        iconColor: allEnabled ? root.colorAccent : root.colorMutedFg
+                                        opacity: allEnabled ? 1.0 : 0.5
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            anchors.margins: -4
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: {
+                                                var allOn = parent.allEnabled
+                                                for (var i = 0; i < filterModel.count; i++) {
+                                                    if (filterModel.get(i).filterType === "include")
+                                                        filterModel.setProperty(i, "enabled", !allOn)
+                                                }
+                                                root.filterRevision++
+                                                rebuildFilteredModel()
+                                                syncFiltersToConfig()
+                                            }
+                                        }
+                                    }
                                 }
 
                                 Flow {
@@ -1490,6 +1526,7 @@ Window {
                                                 cursorShape: Qt.PointingHandCursor
                                                 onClicked: {
                                                     filterModel.setProperty(index, "enabled", !model.enabled)
+                                                    root.filterRevision++
                                                     rebuildFilteredModel()
                                                     syncFiltersToConfig()
                                                 }
@@ -1507,10 +1544,10 @@ Window {
                                                     anchors.verticalCenter: parent.verticalCenter
                                                 }
 
-                                                Text {
-                                                    text: model.enabled ? "👁" : "⦸"
-                                                    font.family: root.fontMono; font.pixelSize: 11
-                                                    color: model.enabled ? chipColor : root.colorMutedFg
+                                                EyeIcon {
+                                                    open: model.enabled
+                                                    iconColor: model.enabled ? chipColor : root.colorMutedFg
+                                                    opacity: model.enabled ? 1.0 : 0.5
                                                     anchors.verticalCenter: parent.verticalCenter
                                                     MouseArea {
                                                         anchors.fill: parent
@@ -1519,6 +1556,7 @@ Window {
                                                         cursorShape: Qt.PointingHandCursor
                                                         onClicked: {
                                                             filterModel.setProperty(index, "enabled", !model.enabled)
+                                                            root.filterRevision++
                                                             rebuildFilteredModel()
                                                             syncFiltersToConfig()
                                                         }
@@ -1552,13 +1590,49 @@ Window {
                                 spacing: 4
                                 visible: excludeFlow.implicitHeight > 0
 
-                                Text {
-                                    text: "BAN"
-                                    font.family: root.fontMono
-                                    font.pixelSize: 9
-                                    font.letterSpacing: 1
-                                    font.bold: true
-                                    color: root.colorDestructive
+                                Row {
+                                    spacing: 6
+                                    Text {
+                                        text: "BAN"
+                                        font.family: root.fontMono
+                                        font.pixelSize: 9
+                                        font.letterSpacing: 1
+                                        font.bold: true
+                                        color: root.colorDestructive
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                    EyeIcon {
+                                        property bool allEnabled: {
+                                            root.filterRevision
+                                            var count = 0, enabledCount = 0
+                                            for (var i = 0; i < filterModel.count; i++) {
+                                                if (filterModel.get(i).filterType === "exclude") {
+                                                    count++
+                                                    if (filterModel.get(i).enabled) enabledCount++
+                                                }
+                                            }
+                                            return count > 0 && enabledCount === count
+                                        }
+                                        open: allEnabled
+                                        iconColor: allEnabled ? root.colorDestructive : root.colorMutedFg
+                                        opacity: allEnabled ? 1.0 : 0.5
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        MouseArea {
+                                            anchors.fill: parent
+                                            anchors.margins: -4
+                                            cursorShape: Qt.PointingHandCursor
+                                            onClicked: {
+                                                var allOn = parent.allEnabled
+                                                for (var i = 0; i < filterModel.count; i++) {
+                                                    if (filterModel.get(i).filterType === "exclude")
+                                                        filterModel.setProperty(i, "enabled", !allOn)
+                                                }
+                                                root.filterRevision++
+                                                rebuildFilteredModel()
+                                                syncFiltersToConfig()
+                                            }
+                                        }
+                                    }
                                 }
 
                                 Flow {
@@ -1587,6 +1661,7 @@ Window {
                                                 cursorShape: Qt.PointingHandCursor
                                                 onClicked: {
                                                     filterModel.setProperty(index, "enabled", !model.enabled)
+                                                    root.filterRevision++
                                                     rebuildFilteredModel()
                                                     syncFiltersToConfig()
                                                 }
@@ -1604,10 +1679,10 @@ Window {
                                                     anchors.verticalCenter: parent.verticalCenter
                                                 }
 
-                                                Text {
-                                                    text: model.enabled ? "👁" : "⦸"
-                                                    font.family: root.fontMono; font.pixelSize: 11
-                                                    color: model.enabled ? chipColor : root.colorMutedFg
+                                                EyeIcon {
+                                                    open: model.enabled
+                                                    iconColor: model.enabled ? chipColor : root.colorMutedFg
+                                                    opacity: model.enabled ? 1.0 : 0.5
                                                     anchors.verticalCenter: parent.verticalCenter
                                                     MouseArea {
                                                         anchors.fill: parent
@@ -1616,6 +1691,7 @@ Window {
                                                         cursorShape: Qt.PointingHandCursor
                                                         onClicked: {
                                                             filterModel.setProperty(index, "enabled", !model.enabled)
+                                                            root.filterRevision++
                                                             rebuildFilteredModel()
                                                             syncFiltersToConfig()
                                                         }
