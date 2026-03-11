@@ -2460,6 +2460,35 @@ Window {
                             }
                         }
 
+                        // ── Search match markers on scrollbar ──
+                        Item {
+                            id: searchMarkerBar
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            anchors.margins: 8
+                            width: 6
+                            z: 5
+                            visible: root.searchBarVisible && root.searchMatches.length > 0
+
+                            Repeater {
+                                model: root.searchMatches
+                                Rectangle {
+                                    readonly property int matchModelIndex: modelData
+                                    readonly property bool isCurrent:
+                                        root.searchCurrentIndex >= 0 &&
+                                        root.searchMatches[root.searchCurrentIndex] === matchModelIndex
+                                    width: searchMarkerBar.width
+                                    height: Math.max(2, searchMarkerBar.height / Math.max(1, terminalModel.count) * 1.5)
+                                    radius: 1
+                                    color: isCurrent ? "#ffaa00" : Qt.rgba(1, 0.667, 0, 0.6)
+                                    y: terminalModel.count > 0
+                                        ? (matchModelIndex / terminalModel.count) * (searchMarkerBar.height - height)
+                                        : 0
+                                }
+                            }
+                        }
+
                         // Scanline overlay on terminal
                         Canvas {
                             anchors.fill: parent
