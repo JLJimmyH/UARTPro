@@ -3526,6 +3526,56 @@ Window {
              + String(s).padStart(2, '0')
     }
 
+    // Auto-connect / auto-record timer (runs once after startup)
+    Timer {
+        id: cmdLineTimer
+        interval: 200
+        repeat: false
+        onTriggered: {
+            var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+
+            // --baud: override baud combo before connecting
+            if (cmdLineBaud > 0) {
+                var bIdx = root.baudRates.indexOf(cmdLineBaud)
+                if (bIdx >= 0)
+                    baudCombo.currentIndex = bIdx
+            }
+
+            // --port: select port in combo and auto-connect
+            if (cmdLinePort !== "") {
+                var portList = serialManager.availablePorts
+                var portIdx = -1
+                for (var i = 0; i < portList.length; i++) {
+                    var pName = portList[i].split(" - ")[0].trim()
+                    if (pName.toUpperCase() === cmdLinePort.toUpperCase()) {
+                        portIdx = i
+                        break
+                    }
+                }
+                if (portIdx >= 0)
+                    portCombo.currentIndex = portIdx
+
+                var ok = serialManager.connectToPort(
+                    cmdLinePort,
+                    parseInt(baudCombo.currentText),
+                    8, 1, 0
+                )
+                if (!ok)
+                    addTerminalEntry(ts, "Auto-connect failed: " + cmdLinePort, "", "error")
+            }
+
+            // --record: auto-start logging
+            if (cmdLineRecord !== "") {
+                if (fileLogger.startLogging(cmdLineRecord)) {
+                    logExistingEntriesToFile()
+                    addTerminalEntry(ts, "Auto-logging started — " + fileLogger.logFilePath, "", "system")
+                } else {
+                    addTerminalEntry(ts, "Auto-logging failed: " + cmdLineRecord, "", "error")
+                }
+            }
+        }
+    }
+
     // Boot sequence on startup
     Component.onCompleted: {
         loadConfigToUI()
@@ -3534,7 +3584,12 @@ Window {
         addTerminalEntry(ts, appName + " v" + appVersion + " // SERIAL TERMINAL INTERFACE", "", "system")
         addTerminalEntry(ts, "System initialized. Ready for connection.", "", "system")
         addTerminalEntry(ts, "Config: " + configManager.configFilePath, "", "system")
-        addTerminalEntry(ts, "Select a port and click CONNECT to begin.", "", "system")
+        if (cmdLinePort !== "" || cmdLineRecord !== "") {
+            addTerminalEntry(ts, "Command-line args detected — auto-starting...", "", "system")
+            cmdLineTimer.start()
+        } else {
+            addTerminalEntry(ts, "Select a port and click CONNECT to begin.", "", "system")
+        }
         serialManager.refreshPorts()
     }
 }

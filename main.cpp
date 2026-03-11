@@ -74,7 +74,22 @@ int main(int argc, char *argv[])
         QStringLiteral("config"),
         QStringLiteral("Path to configuration JSON file."),
         QStringLiteral("path"));
+    QCommandLineOption portOption(
+        QStringLiteral("port"),
+        QStringLiteral("Auto-connect to this serial port on startup (e.g. COM3)."),
+        QStringLiteral("portName"));
+    QCommandLineOption baudOption(
+        QStringLiteral("baud"),
+        QStringLiteral("Baud rate to use for auto-connect (e.g. 115200)."),
+        QStringLiteral("baudRate"));
+    QCommandLineOption recordOption(
+        QStringLiteral("record"),
+        QStringLiteral("Auto-start logging to this file path on startup."),
+        QStringLiteral("filePath"));
     parser.addOption(configOption);
+    parser.addOption(portOption);
+    parser.addOption(baudOption);
+    parser.addOption(recordOption);
     parser.process(app);
 
     QQuickStyle::setStyle(QStringLiteral("Basic"));
@@ -88,12 +103,19 @@ int main(int argc, char *argv[])
         : configManager.defaultConfigPath();
     configManager.loadFromFile(configPath);
 
+    QString cmdLinePort   = parser.isSet(portOption)   ? parser.value(portOption)          : QString();
+    int     cmdLineBaud   = parser.isSet(baudOption)   ? parser.value(baudOption).toInt()  : 0;
+    QString cmdLineRecord = parser.isSet(recordOption) ? parser.value(recordOption)        : QString();
+
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("serialManager"), &serialManager);
     engine.rootContext()->setContextProperty(QStringLiteral("fileLogger"), &fileLogger);
     engine.rootContext()->setContextProperty(QStringLiteral("configManager"), &configManager);
     engine.rootContext()->setContextProperty(QStringLiteral("appVersion"), QStringLiteral(APP_VERSION_STR));
     engine.rootContext()->setContextProperty(QStringLiteral("appName"), QStringLiteral(APP_NAME));
+    engine.rootContext()->setContextProperty(QStringLiteral("cmdLinePort"),   cmdLinePort);
+    engine.rootContext()->setContextProperty(QStringLiteral("cmdLineBaud"),   cmdLineBaud);
+    engine.rootContext()->setContextProperty(QStringLiteral("cmdLineRecord"), cmdLineRecord);
 
     const QUrl url(QStringLiteral("qrc:/qt/qml/UARTPro/main.qml"));
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreated, &app,
