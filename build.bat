@@ -40,3 +40,7 @@ if %errorlevel% neq 0 (
 )
 
 echo Build succeeded!
+
+echo Copying runtime DLLs from bin...
+robocopy "..\bin" "." /E /XF "UARTPro.exe" "uartpro_config.json" >nul
+echo Done.
