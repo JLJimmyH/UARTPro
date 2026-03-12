@@ -297,6 +297,11 @@ Window {
         }
     }
     Shortcut {
+        sequence: "Ctrl+A"
+        context: Qt.ApplicationShortcut
+        onActivated: selectAllEntries()
+    }
+    Shortcut {
         sequence: "Ctrl+F"
         context: Qt.ApplicationShortcut
         onActivated: {
@@ -438,7 +443,7 @@ Window {
             border.width: 1
         }
         MenuItem {
-            text: "  COPY SELECTED"
+            text: "  Copy        (Ctrl+C)"
             enabled: { root.selectionVersion; return Object.keys(root.selectedSet).length > 0 }
             onTriggered: copySelectedOrInlineText()
             contentItem: Text {
@@ -452,20 +457,7 @@ Window {
             }
         }
         MenuItem {
-            text: "  COPY ALL"
-            onTriggered: copyAllEntries()
-            contentItem: Text {
-                text: parent.text
-                font.family: root.fontMono; font.pixelSize: 11
-                font.letterSpacing: 1
-                color: root.colorAccentTertiary
-            }
-            background: Rectangle {
-                color: parent.hovered ? root.colorMuted : "transparent"
-            }
-        }
-        MenuItem {
-            text: "  SELECT ALL"
+            text: "  Select All  (Ctrl+A)"
             onTriggered: selectAllEntries()
             contentItem: Text {
                 text: parent.text
@@ -478,107 +470,13 @@ Window {
             }
         }
         MenuItem {
-            text: "  CLEAR SELECTION"
-            enabled: { root.selectionVersion; return Object.keys(root.selectedSet).length > 0 }
-            onTriggered: clearSelection()
-            contentItem: Text {
-                text: parent.text
-                font.family: root.fontMono; font.pixelSize: 11
-                font.letterSpacing: 1
-                color: parent.enabled ? root.colorFg : root.colorMutedFg
-            }
-            background: Rectangle {
-                color: parent.hovered ? root.colorMuted : "transparent"
-            }
-        }
-        MenuItem {
-            text: "  CLEAR TERMINAL"
+            text: "  Clean       (Ctrl+L)"
             onTriggered: clearTerminal()
             contentItem: Text {
                 text: parent.text
                 font.family: root.fontMono; font.pixelSize: 11
                 font.letterSpacing: 1
-                color: root.colorDestructive
-            }
-            background: Rectangle {
-                color: parent.hovered ? root.colorMuted : "transparent"
-            }
-        }
-
-        MenuSeparator {
-            contentItem: Rectangle { implicitHeight: 1; color: root.colorBorder }
-        }
-
-        MenuItem {
-            text: "  + HIGHLIGHT THIS"
-            enabled: root.lastClickedRowText !== ""
-            onTriggered: addKeyword(root.lastClickedRowText)
-            contentItem: Text {
-                text: parent.text
-                font.family: root.fontMono; font.pixelSize: 11
-                font.letterSpacing: 1
-                color: parent.enabled ? "#ffaa00" : root.colorMutedFg
-            }
-            background: Rectangle {
-                color: parent.hovered ? root.colorMuted : "transparent"
-            }
-        }
-        MenuItem {
-            text: "  + HAS FILTER"
-            enabled: root.lastClickedRowText !== ""
-            onTriggered: addFilter(root.lastClickedRowText, "include")
-            contentItem: Text {
-                text: parent.text
-                font.family: root.fontMono; font.pixelSize: 11
-                font.letterSpacing: 1
-                color: parent.enabled ? root.colorAccent : root.colorMutedFg
-            }
-            background: Rectangle {
-                color: parent.hovered ? root.colorMuted : "transparent"
-            }
-        }
-        MenuItem {
-            text: "  \u2212 BAN FILTER"
-            enabled: root.lastClickedRowText !== ""
-            onTriggered: addFilter(root.lastClickedRowText, "exclude")
-            contentItem: Text {
-                text: parent.text
-                font.family: root.fontMono; font.pixelSize: 11
-                font.letterSpacing: 1
-                color: parent.enabled ? root.colorDestructive : root.colorMutedFg
-            }
-            background: Rectangle {
-                color: parent.hovered ? root.colorMuted : "transparent"
-            }
-        }
-
-        MenuSeparator {
-            contentItem: Rectangle { implicitHeight: 1; color: root.colorBorder }
-        }
-
-        MenuItem {
-            text: "  EXPORT FILTERED..."
-            enabled: terminalModel.count > 0
-            onTriggered: { root.exportMode = "filtered"; exportSaveDialog.open() }
-            contentItem: Text {
-                text: parent.text
-                font.family: root.fontMono; font.pixelSize: 11
-                font.letterSpacing: 1
-                color: parent.enabled ? root.colorAccentTertiary : root.colorMutedFg
-            }
-            background: Rectangle {
-                color: parent.hovered ? root.colorMuted : "transparent"
-            }
-        }
-        MenuItem {
-            text: "  EXPORT ALL..."
-            enabled: root.terminalEntries.length > 0
-            onTriggered: { root.exportMode = "all"; exportSaveDialog.open() }
-            contentItem: Text {
-                text: parent.text
-                font.family: root.fontMono; font.pixelSize: 11
-                font.letterSpacing: 1
-                color: parent.enabled ? root.colorAccentTertiary : root.colorMutedFg
+                color: root.colorFg
             }
             background: Rectangle {
                 color: parent.hovered ? root.colorMuted : "transparent"
@@ -2398,9 +2296,10 @@ Window {
                                         root.activeEditRow = entryDelegate.entryIndex
                                         selectOnly(entryDelegate.entryIndex)
                                         root.lastClickedRow = entryDelegate.index
-                                        // Calculate start position for drag selection
-                                        var localX = mouse.x - dataRow.x - editText.x
-                                        var localY = mouse.y - dataRow.y - editText.y
+                                        // Use displayText.x because the Row layout hasn't recalculated yet
+                                        // (editText just became visible, its x is stale until next layout pass)
+                                        var localX = mouse.x - dataRow.x - displayText.x
+                                        var localY = mouse.y - dataRow.y - displayText.y
                                         root._selStart = editText.positionAt(localX, localY)
                                         editText.cursorPosition = root._selStart
                                         editText.select(root._selStart, root._selStart) // clear previous selection
