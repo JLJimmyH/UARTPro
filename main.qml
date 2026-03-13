@@ -2354,7 +2354,13 @@ Window {
                         MouseArea {
                             anchors.fill: parent
                             z: 2
-                            acceptedButtons: Qt.NoButton
+                            acceptedButtons: Qt.RightButton
+                            onPressed: function(mouse) {
+                                if (mouse.button === Qt.RightButton) {
+                                    terminalContextMenu.popup()
+                                    mouse.accepted = true
+                                }
+                            }
                             onWheel: function(wheel) {
                                 if ((wheel.modifiers & Qt.ControlModifier) && (wheel.modifiers & Qt.ShiftModifier)) {
                                     if (wheel.angleDelta.y > 0 && root.uiScale < 2.0)
