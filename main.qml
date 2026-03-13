@@ -470,6 +470,20 @@ Window {
             }
         }
         MenuItem {
+            text: "  Copy All"
+            enabled: terminalModel.count > 0
+            onTriggered: copyAllEntries()
+            contentItem: Text {
+                text: parent.text
+                font.family: root.fontMono; font.pixelSize: 11
+                font.letterSpacing: 1
+                color: parent.enabled ? root.colorFg : root.colorMutedFg
+            }
+            background: Rectangle {
+                color: parent.hovered ? root.colorMuted : "transparent"
+            }
+        }
+        MenuItem {
             text: "  Clean       (Ctrl+L)"
             onTriggered: clearTerminal()
             contentItem: Text {
@@ -1852,6 +1866,22 @@ Window {
                                 font.pixelSize: 10
                                 font.letterSpacing: 1
                                 color: root.colorMutedFg
+                            }
+
+                            BroomIcon {
+                                width: 16
+                                height: 16
+                                iconColor: root.colorDestructive
+                                opacity: clrMouseArea.containsMouse ? 1.0 : 0.5
+                                Layout.alignment: Qt.AlignVCenter
+                                Behavior on opacity { NumberAnimation { duration: 100 } }
+                                MouseArea {
+                                    id: clrMouseArea
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    hoverEnabled: true
+                                    onClicked: clearTerminal()
+                                }
                             }
                         }
                     }
