@@ -1246,8 +1246,9 @@ Window {
                                     Repeater {
                                         model: keywordModel
                                         delegate: Rectangle {
-                                            width: kwChipRow.implicitWidth + 20
+                                            width: (kwChipRow.implicitWidth + 20) > parent.width ? parent.width : (kwChipRow.implicitWidth + 20)
                                             height: 26
+                                            clip: true
                                             radius: 3
                                             color: Qt.rgba(Qt.color(model.color).r, Qt.color(model.color).g, Qt.color(model.color).b,
                                                            model.enabled ? 0.15 : 0.05)
@@ -1313,9 +1314,11 @@ Window {
 
                                                 Text {
                                                     text: model.text
+                                                    elide: Text.ElideRight
                                                     font.family: root.fontMono; font.pixelSize: 11
                                                     color: model.color
                                                     anchors.verticalCenter: parent.verticalCenter
+                                                    width: Math.min(implicitWidth, parent.parent.width - 90)
                                                 }
 
                                                 EyeIcon {
@@ -1423,8 +1426,9 @@ Window {
                                             visible: model.filterType === "include"
                                             property color chipColor: root.colorAccent
 
-                                            width: flChipRow.implicitWidth + 20
+                                            width: 220 // 因为两个Flow共用了一个 filterModel，无法动态判断父对象宽度，此处写死宽度
                                             height: 26
+                                            clip: true
                                             radius: 3
                                             color: Qt.rgba(chipColor.r, chipColor.g, chipColor.b,
                                                            model.enabled ? 0.15 : 0.05)
@@ -1451,6 +1455,8 @@ Window {
 
                                                 Text {
                                                     text: "+ " + model.text
+                                                    elide: Text.ElideRight
+                                                    width: Math.min(implicitWidth, parent.parent.width - 90)
                                                     font.family: root.fontMono; font.pixelSize: 11
                                                     color: chipColor
                                                     anchors.verticalCenter: parent.verticalCenter
@@ -1558,8 +1564,9 @@ Window {
                                             visible: model.filterType === "exclude"
                                             property color chipColor: root.colorDestructive
 
-                                            width: flChipRowEx.implicitWidth + 20
+                                            width: 220
                                             height: 26
+                                            clip: true
                                             radius: 3
                                             color: Qt.rgba(chipColor.r, chipColor.g, chipColor.b,
                                                            model.enabled ? 0.15 : 0.05)
@@ -1586,6 +1593,8 @@ Window {
 
                                                 Text {
                                                     text: "− " + model.text
+                                                    elide: Text.ElideRight
+                                                    width: Math.min(implicitWidth, parent.parent.width - 90)
                                                     font.family: root.fontMono; font.pixelSize: 11
                                                     color: chipColor
                                                     anchors.verticalCenter: parent.verticalCenter
@@ -3085,6 +3094,8 @@ Window {
                 terminalModel.append(entry)
             }
         }
+        if (root.searchBarVisible && root.searchQuery !== "")
+            performSearch()
         if (root.autoScroll)
             terminalView.positionViewAtEnd()
     }
@@ -3500,7 +3511,7 @@ Window {
             var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
             var displayData = root.hexSendMode ? data : data
             addTerminalEntry(ts, displayData, "", "tx")
-            sendInput.text = ""
+            //sendInput.text = ""
         }
     }
 
