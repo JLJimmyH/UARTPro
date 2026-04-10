@@ -1757,6 +1757,39 @@ Window {
                             }
                         }
 
+                        // 目前 LOG 檔名顯示(僅在記錄中顯示)
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 2
+                            visible: fileLogger.logging
+
+                            Text {
+                                text: "LOGGING TO"
+                                font.family: root.fontMono
+                                font.pixelSize: 10
+                                font.letterSpacing: 2
+                                color: root.colorMutedFg
+                            }
+                            Text {
+                                Layout.fillWidth: true
+                                text: {
+                                    var p = fileLogger.logFilePath
+                                    var i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'))
+                                    return i >= 0 ? p.substring(i + 1) : p
+                                }
+                                font.family: root.fontMono
+                                font.pixelSize: 11
+                                color: root.colorAccent
+                                elide: Text.ElideMiddle
+                                wrapMode: Text.NoWrap
+
+                                ToolTip.visible: fileHover.hovered
+                                ToolTip.text: fileLogger.logFilePath
+                                ToolTip.delay: 500
+                                HoverHandler { id: fileHover }
+                            }
+                        }
+
                         Item { Layout.fillHeight: true }
                     }
                 }
