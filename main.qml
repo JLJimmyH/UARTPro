@@ -311,6 +311,7 @@ Window {
             }
             root.searchBarVisible = true
             searchInput.forceActiveFocus()
+            searchInput.selectAll()
         }
     }
     Shortcut {
@@ -2317,6 +2318,8 @@ Window {
                                             mouse.accepted = true
                                             return
                                         }
+                                        // Move focus away from text inputs so Ctrl+C shortcut fires
+                                        terminalView.forceActiveFocus()
                                         // Ctrl / Shift clicks → line-level selection (original behaviour)
                                         if (mouse.modifiers & Qt.ShiftModifier && root.lastClickedRow >= 0) {
                                             root.activeEditRow = -1
