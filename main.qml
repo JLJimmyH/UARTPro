@@ -156,6 +156,9 @@ Window {
     property bool leftPanelCollapsed: false
     property bool leftPanelAutoCollapsed: false
     property int leftPanelAutoCollapseWidth: 980
+    property int leftPanelWidth: 280
+    readonly property int leftPanelMinWidth: 200
+    readonly property int leftPanelMaxWidth: 600
     property int ultraNarrowWidth: 860
     readonly property bool ultraNarrowMode: root.width <= root.ultraNarrowWidth
     property int titleOnlyHeightThreshold: 64
@@ -994,7 +997,7 @@ Window {
             // ════════════════════════════════════════════════════════
             Rectangle {
                 id: leftPanel
-                Layout.preferredWidth: root.leftPanelCollapsed ? 0 : 280
+                Layout.preferredWidth: root.leftPanelCollapsed ? 0 : root.leftPanelWidth
                 Layout.fillHeight: true
                 color: root.colorCard
                 border.color: root.colorBorder
@@ -1427,7 +1430,7 @@ Window {
                                             visible: model.filterType === "include"
                                             property color chipColor: root.colorAccent
 
-                                            width: 220 // 因为两个Flow共用了一个 filterModel，无法动态判断父对象宽度，此处写死宽度
+                                            width: includeFlow.width
                                             height: 26
                                             clip: true
                                             radius: 3
@@ -1449,53 +1452,62 @@ Window {
                                                 }
                                             }
 
-                                            Row {
-                                                id: flChipRow
-                                                anchors.centerIn: parent
-                                                spacing: 6
+                                            Item {
+                                                anchors.fill: parent
+                                                anchors.leftMargin: 8
+                                                anchors.rightMargin: 6
 
                                                 Text {
+                                                    anchors.left: parent.left
+                                                    anchors.right: includeIconRow.left
+                                                    anchors.rightMargin: 6
+                                                    anchors.verticalCenter: parent.verticalCenter
                                                     text: "+ " + model.text
                                                     elide: Text.ElideRight
-                                                    width: Math.min(implicitWidth, parent.parent.width - 90)
                                                     font.family: root.fontMono; font.pixelSize: 11
                                                     color: chipColor
-                                                    anchors.verticalCenter: parent.verticalCenter
                                                 }
 
-                                                EyeIcon {
-                                                    open: model.enabled
-                                                    iconColor: model.enabled ? chipColor : root.colorMutedFg
-                                                    opacity: model.enabled ? 1.0 : 0.5
+                                                Row {
+                                                    id: includeIconRow
+                                                    anchors.right: parent.right
                                                     anchors.verticalCenter: parent.verticalCenter
-                                                    MouseArea {
-                                                        anchors.fill: parent
-                                                        anchors.margins: -4
-                                                        hoverEnabled: true
-                                                        cursorShape: Qt.PointingHandCursor
-                                                        onClicked: {
-                                                            filterModel.setProperty(index, "enabled", !model.enabled)
-                                                            root.filterRevision++
-                                                            rebuildFilteredModel()
-                                                            syncFiltersToConfig()
+                                                    spacing: 6
+
+                                                    EyeIcon {
+                                                        open: model.enabled
+                                                        iconColor: model.enabled ? chipColor : root.colorMutedFg
+                                                        opacity: model.enabled ? 1.0 : 0.5
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                        MouseArea {
+                                                            anchors.fill: parent
+                                                            anchors.margins: -4
+                                                            hoverEnabled: true
+                                                            cursorShape: Qt.PointingHandCursor
+                                                            onClicked: {
+                                                                filterModel.setProperty(index, "enabled", !model.enabled)
+                                                                root.filterRevision++
+                                                                rebuildFilteredModel()
+                                                                syncFiltersToConfig()
+                                                            }
                                                         }
                                                     }
-                                                }
 
-                                                Text {
-                                                    text: "✕"
-                                                    font.family: root.fontMono; font.pixelSize: 11
-                                                    font.bold: true
-                                                    color: root.colorDestructive
-                                                    opacity: includeChipMa.containsMouse ? 1.0 : 0.5
-                                                    anchors.verticalCenter: parent.verticalCenter
-                                                    MouseArea {
-                                                        id: includeChipMa
-                                                        anchors.fill: parent
-                                                        anchors.margins: -4
-                                                        hoverEnabled: true
-                                                        cursorShape: Qt.PointingHandCursor
-                                                        onClicked: { filterModel.remove(index); syncFiltersToConfig() }
+                                                    Text {
+                                                        text: "✕"
+                                                        font.family: root.fontMono; font.pixelSize: 11
+                                                        font.bold: true
+                                                        color: root.colorDestructive
+                                                        opacity: includeChipMa.containsMouse ? 1.0 : 0.5
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                        MouseArea {
+                                                            id: includeChipMa
+                                                            anchors.fill: parent
+                                                            anchors.margins: -4
+                                                            hoverEnabled: true
+                                                            cursorShape: Qt.PointingHandCursor
+                                                            onClicked: { filterModel.remove(index); syncFiltersToConfig() }
+                                                        }
                                                     }
                                                 }
                                             }
@@ -1565,7 +1577,7 @@ Window {
                                             visible: model.filterType === "exclude"
                                             property color chipColor: root.colorDestructive
 
-                                            width: 220
+                                            width: excludeFlow.width
                                             height: 26
                                             clip: true
                                             radius: 3
@@ -1587,53 +1599,62 @@ Window {
                                                 }
                                             }
 
-                                            Row {
-                                                id: flChipRowEx
-                                                anchors.centerIn: parent
-                                                spacing: 6
+                                            Item {
+                                                anchors.fill: parent
+                                                anchors.leftMargin: 8
+                                                anchors.rightMargin: 6
 
                                                 Text {
+                                                    anchors.left: parent.left
+                                                    anchors.right: excludeIconRow.left
+                                                    anchors.rightMargin: 6
+                                                    anchors.verticalCenter: parent.verticalCenter
                                                     text: "− " + model.text
                                                     elide: Text.ElideRight
-                                                    width: Math.min(implicitWidth, parent.parent.width - 90)
                                                     font.family: root.fontMono; font.pixelSize: 11
                                                     color: chipColor
-                                                    anchors.verticalCenter: parent.verticalCenter
                                                 }
 
-                                                EyeIcon {
-                                                    open: model.enabled
-                                                    iconColor: model.enabled ? chipColor : root.colorMutedFg
-                                                    opacity: model.enabled ? 1.0 : 0.5
+                                                Row {
+                                                    id: excludeIconRow
+                                                    anchors.right: parent.right
                                                     anchors.verticalCenter: parent.verticalCenter
-                                                    MouseArea {
-                                                        anchors.fill: parent
-                                                        anchors.margins: -4
-                                                        hoverEnabled: true
-                                                        cursorShape: Qt.PointingHandCursor
-                                                        onClicked: {
-                                                            filterModel.setProperty(index, "enabled", !model.enabled)
-                                                            root.filterRevision++
-                                                            rebuildFilteredModel()
-                                                            syncFiltersToConfig()
+                                                    spacing: 6
+
+                                                    EyeIcon {
+                                                        open: model.enabled
+                                                        iconColor: model.enabled ? chipColor : root.colorMutedFg
+                                                        opacity: model.enabled ? 1.0 : 0.5
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                        MouseArea {
+                                                            anchors.fill: parent
+                                                            anchors.margins: -4
+                                                            hoverEnabled: true
+                                                            cursorShape: Qt.PointingHandCursor
+                                                            onClicked: {
+                                                                filterModel.setProperty(index, "enabled", !model.enabled)
+                                                                root.filterRevision++
+                                                                rebuildFilteredModel()
+                                                                syncFiltersToConfig()
+                                                            }
                                                         }
                                                     }
-                                                }
 
-                                                Text {
-                                                    text: "✕"
-                                                    font.family: root.fontMono; font.pixelSize: 11
-                                                    font.bold: true
-                                                    color: root.colorDestructive
-                                                    opacity: excludeChipMa.containsMouse ? 1.0 : 0.5
-                                                    anchors.verticalCenter: parent.verticalCenter
-                                                    MouseArea {
-                                                        id: excludeChipMa
-                                                        anchors.fill: parent
-                                                        anchors.margins: -4
-                                                        hoverEnabled: true
-                                                        cursorShape: Qt.PointingHandCursor
-                                                        onClicked: { filterModel.remove(index); syncFiltersToConfig() }
+                                                    Text {
+                                                        text: "✕"
+                                                        font.family: root.fontMono; font.pixelSize: 11
+                                                        font.bold: true
+                                                        color: root.colorDestructive
+                                                        opacity: excludeChipMa.containsMouse ? 1.0 : 0.5
+                                                        anchors.verticalCenter: parent.verticalCenter
+                                                        MouseArea {
+                                                            id: excludeChipMa
+                                                            anchors.fill: parent
+                                                            anchors.margins: -4
+                                                            hoverEnabled: true
+                                                            cursorShape: Qt.PointingHandCursor
+                                                            onClicked: { filterModel.remove(index); syncFiltersToConfig() }
+                                                        }
                                                     }
                                                 }
                                             }
@@ -1791,6 +1812,44 @@ Window {
                         }
 
                         Item { Layout.fillHeight: true }
+                    }
+                }
+            }
+
+            // ── 左側面板拖曳分隔條 ──
+            Item {
+                id: leftPanelSplitter
+                visible: !root.leftPanelCollapsed
+                Layout.preferredWidth: 5
+                Layout.fillHeight: true
+
+                Rectangle {
+                    anchors.fill: parent
+                    color: root.colorAccent
+                    opacity: splitterMa.pressed ? 0.6 : (splitterMa.containsMouse ? 0.35 : 0)
+                    Behavior on opacity { NumberAnimation { duration: 120 } }
+                }
+
+                MouseArea {
+                    id: splitterMa
+                    anchors.fill: parent
+                    anchors.leftMargin: -2
+                    anchors.rightMargin: -2
+                    hoverEnabled: true
+                    cursorShape: Qt.SplitHCursor
+                    property real pressX: 0
+                    property int startWidth: 0
+                    onPressed: {
+                        pressX = mouse.x
+                        startWidth = root.leftPanelWidth
+                    }
+                    onPositionChanged: {
+                        if (pressed) {
+                            var nw = startWidth + (mouse.x - pressX)
+                            if (nw < root.leftPanelMinWidth) nw = root.leftPanelMinWidth
+                            if (nw > root.leftPanelMaxWidth) nw = root.leftPanelMaxWidth
+                            root.leftPanelWidth = nw
+                        }
                     }
                 }
             }
