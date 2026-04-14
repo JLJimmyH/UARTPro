@@ -104,6 +104,12 @@ Window {
             bg: "#282c34", fg: "#dcdfe4", card: "#1e2228", muted: "#333842",
             mutedFg: "#7f848e", accent: "#dcdfe4", accentSecondary: "#9cdcfe",
             accentTertiary: "#4ec9b0", border: "#3e4451", destructive: "#f44747"
+        },
+        {
+            name: "ATOM",
+            bg: "#2c313c", fg: "#ffffff", card: "#363c48", muted: "#404756",
+            mutedFg: "#9aa2b3", accent: "#ffffff", accentSecondary: "#d8a6ff",
+            accentTertiary: "#a5e09a", border: "#4a5160", destructive: "#ff7b86"
         }
     ]
 
