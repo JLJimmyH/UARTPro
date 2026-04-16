@@ -2679,6 +2679,42 @@ Window {
                                 }
                             }
 
+                            onDoubleClicked: function(mouse) {
+                                if (mouse.button !== Qt.LeftButton) return
+                                var row = rowAtY(mouse.y)
+                                if (row < 0) return
+                                var entry = terminalModel.get(row)
+                                if (!entry) return
+
+                                // Activate editText for this row
+                                root.activeEditRow = entry.entryIndex
+                                selectOnly(entry.entryIndex)
+                                root.lastClickedRow = row
+                                root._dragSelecting = false
+
+                                // Wait one frame for editText layout, then select word
+                                Qt.callLater(function() {
+                                    var item = terminalView.itemAtIndex(row)
+                                    if (!item) return
+                                    var et = findEditText(item)
+                                    if (!et) return
+                                    var localPt = terminalMouseOverlay.mapToItem(et, mouse.x, mouse.y)
+                                    var pos = et.positionAt(localPt.x, localPt.y)
+                                    // Get plain text and find word boundaries
+                                    var plain = et.getText(0, et.length)
+                                    var wordStart = pos
+                                    var wordEnd = pos
+                                    // Expand left to word boundary
+                                    while (wordStart > 0 && /\S/.test(plain.charAt(wordStart - 1)))
+                                        wordStart--
+                                    // Expand right to word boundary
+                                    while (wordEnd < plain.length && /\S/.test(plain.charAt(wordEnd)))
+                                        wordEnd++
+                                    if (wordStart < wordEnd)
+                                        et.select(wordStart, wordEnd)
+                                })
+                            }
+
                             onWheel: function(wheel) {
                                 if ((wheel.modifiers & Qt.ControlModifier) && (wheel.modifiers & Qt.ShiftModifier)) {
                                     if (wheel.angleDelta.y > 0 && root.uiScale < 2.0)
