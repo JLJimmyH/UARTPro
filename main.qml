@@ -190,6 +190,14 @@ Window {
     property int lastClickedRow: -1
     property int activeEditRow: -1      // entryIndex of the row in text-select mode
     property int _selStart: -1          // character selection start position
+
+    // ── Cross-line drag selection ────────────────────────────────
+    property bool _dragSelecting: false
+    property int _dragStartModelRow: -1   // model index (ListView row) where drag began
+    property int _dragStartCharPos: -1    // character offset within that row
+    property int _dragEndModelRow: -1     // model index where drag currently is
+    property int _dragEndCharPos: -1      // character offset within end row
+    property int _dragSelVersion: 0       // bump to trigger delegate re-eval
     property int keywordRevision: 0
     property int filterRevision: 0
     property int kwColorIndex: 0
@@ -218,6 +226,14 @@ Window {
 
     // Hidden TextEdit for clipboard access
     TextEdit { id: clipHelper; visible: false }
+
+    // Monospace char width for precise char-level position calculation
+    TextMetrics {
+        id: monoCharMetrics
+        font.family: root.fontMono
+        font.pixelSize: root.terminalFontSize
+        text: "M"
+    }
 
     // ── Config drag-and-drop + reload ─────────────────────────────
     Connections {
@@ -2362,6 +2378,7 @@ Window {
                                     // Prefix + Data (RichText for keyword highlighting)
                                     Text {
                                         id: displayText
+                                        objectName: "displayText"
                                         visible: root.activeEditRow !== entryDelegate.entryIndex
                                         text: {
                                             root.keywordRevision  // re-evaluate on keyword change
@@ -2406,71 +2423,228 @@ Window {
                                     }
                                 }
 
-                                MouseArea {
-                                    anchors.fill: parent
-                                    acceptedButtons: Qt.LeftButton | Qt.RightButton
-                                    onPressed: function(mouse) {
-                                        if (mouse.button === Qt.RightButton) {
-                                            root.lastClickedRowText = String(entryDelegate.msgText)
-                                            terminalContextMenu.popup()
-                                            mouse.accepted = true
-                                            return
-                                        }
-                                        // Move focus away from text inputs so Ctrl+C shortcut fires
-                                        terminalView.forceActiveFocus()
-                                        // Ctrl / Shift clicks → line-level selection (original behaviour)
-                                        if (mouse.modifiers & Qt.ShiftModifier && root.lastClickedRow >= 0) {
-                                            root.activeEditRow = -1
-                                            selectRange(root.lastClickedRow, entryDelegate.index)
-                                            mouse.accepted = true
-                                            return
-                                        }
-                                        if (mouse.modifiers & Qt.ControlModifier) {
-                                            root.activeEditRow = -1
-                                            toggleSelection(entryDelegate.entryIndex)
-                                            root.lastClickedRow = entryDelegate.index
-                                            mouse.accepted = true
-                                            return
-                                        }
-                                        // Plain left click → activate char-level selection on this row
-                                        root.activeEditRow = entryDelegate.entryIndex
-                                        selectOnly(entryDelegate.entryIndex)
-                                        root.lastClickedRow = entryDelegate.index
-                                        // Use displayText.x because the Row layout hasn't recalculated yet
-                                        // (editText just became visible, its x is stale until next layout pass)
-                                        var localX = mouse.x - dataRow.x - displayText.x
-                                        var localY = mouse.y - dataRow.y - displayText.y
-                                        root._selStart = editText.positionAt(localX, localY)
-                                        editText.cursorPosition = root._selStart
-                                        editText.select(root._selStart, root._selStart) // clear previous selection
+                                // Partial-line selection highlight for cross-line drag
+                                Rectangle {
+                                    id: partialSelRect
+                                    visible: {
+                                        root._dragSelVersion
+                                        if (!root._dragSelecting && root._dragStartModelRow < 0) return false
+                                        var info = root.getDragSelectionInfo(entryDelegate.index)
+                                        return info.type !== "none"
                                     }
-                                    onPositionChanged: function(mouse) {
-                                        // Drag → update character selection
-                                        if (pressed && root.activeEditRow === entryDelegate.entryIndex && root._selStart >= 0) {
-                                            var localX = mouse.x - dataRow.x - editText.x
-                                            var localY = mouse.y - dataRow.y - editText.y
-                                            var pos = editText.positionAt(localX, localY)
-                                            editText.select(root._selStart, pos)
+                                    y: 0; height: parent.height
+                                    color: Qt.rgba(root.colorAccent.r, root.colorAccent.g, root.colorAccent.b, 0.25)
+                                    x: {
+                                        root._dragSelVersion
+                                        var info = root.getDragSelectionInfo(entryDelegate.index)
+                                        if (info.type === "full" || info.type === "none") return 0
+                                        if (info.type === "head") {
+                                            // from charStart to end of line
+                                            return root.getCharXInDelegate(entryDelegate, info.charStart)
                                         }
+                                        // tail: from start of text to charEnd
+                                        return dataRow.x + displayText.x
                                     }
-                                    onReleased: function(mouse) {
-                                        root._selStart = -1
+                                    width: {
+                                        root._dragSelVersion
+                                        var info = root.getDragSelectionInfo(entryDelegate.index)
+                                        if (info.type === "full") return parent.width
+                                        if (info.type === "none") return 0
+                                        if (info.type === "head") {
+                                            var startX = root.getCharXInDelegate(entryDelegate, info.charStart)
+                                            return parent.width - startX
+                                        }
+                                        // tail
+                                        var baseX = dataRow.x + displayText.x
+                                        var endX = root.getCharXInDelegate(entryDelegate, info.charEnd)
+                                        return Math.max(0, endX - baseX)
                                     }
                                 }
                             }
                         }
 
-                        // Terminal-wide wheel handler — covers empty space too
+                        // Terminal-wide mouse handler — left-click drag selection + right-click context menu + wheel
                         MouseArea {
+                            id: terminalMouseOverlay
                             anchors.fill: parent
                             z: 2
-                            acceptedButtons: Qt.RightButton
+                            acceptedButtons: Qt.LeftButton | Qt.RightButton
+                            hoverEnabled: false
+
+                            function rowAtY(mouseY) {
+                                // Map overlay coords → ListView contentItem coords
+                                var mapped = mapToItem(terminalView.contentItem, 0, mouseY)
+                                return terminalView.indexAt(terminalView.width / 2, mapped.y)
+                            }
+
+                            function stripHtmlToPlain(html) {
+                                return html.replace(/<[^>]*>/g, "")
+                                           .replace(/&gt;/g, ">")
+                                           .replace(/&lt;/g, "<")
+                                           .replace(/&amp;/g, "&")
+                                           .replace(/&quot;/g, "\"")
+                                           .replace(/&#39;/g, "'")
+                            }
+
+                            function charPosInRow(modelRow, mouseX, mouseY) {
+                                var item = terminalView.itemAtIndex(modelRow)
+                                if (!item) return 0
+                                var tgt = findTextInDelegate(item)
+                                if (!tgt) return 0
+                                var mapped = mapToItem(tgt, mouseX, mouseY)
+                                var charWidth = monoCharMetrics.advanceWidth
+                                if (charWidth <= 0) return 0
+                                var plainText = tgt.text ? stripHtmlToPlain(tgt.text) : ""
+                                return Math.max(0, Math.min(plainText.length, Math.round(mapped.x / charWidth)))
+                            }
+
+                            function findTextInDelegate(item) {
+                                for (var i = 0; i < item.children.length; i++) {
+                                    var child = item.children[i]
+                                    if (child.children) {
+                                        for (var j = 0; j < child.children.length; j++) {
+                                            var gc = child.children[j]
+                                            if (gc.objectName === "editText" && gc.visible) return gc
+                                            if (gc.objectName === "displayText" && gc.visible) return gc
+                                        }
+                                    }
+                                }
+                                return null
+                            }
+
                             onPressed: function(mouse) {
                                 if (mouse.button === Qt.RightButton) {
+                                    // Find the row under cursor for context menu
+                                    var row = rowAtY(mouse.y)
+                                    if (row >= 0) {
+                                        var entry = terminalModel.get(row)
+                                        if (entry) root.lastClickedRowText = String(entry.msgText)
+                                    }
                                     terminalContextMenu.popup()
                                     mouse.accepted = true
+                                    return
+                                }
+
+                                terminalView.forceActiveFocus()
+                                var row = rowAtY(mouse.y)
+
+                                // Ctrl / Shift clicks → line-level selection
+                                if (mouse.modifiers & Qt.ShiftModifier && root.lastClickedRow >= 0) {
+                                    root.activeEditRow = -1
+                                    root._dragSelecting = false
+                                    selectRange(root.lastClickedRow, row)
+                                    mouse.accepted = true
+                                    return
+                                }
+                                if (mouse.modifiers & Qt.ControlModifier) {
+                                    root.activeEditRow = -1
+                                    root._dragSelecting = false
+                                    if (row >= 0) {
+                                        var entry = terminalModel.get(row)
+                                        if (entry) toggleSelection(entry.entryIndex)
+                                    }
+                                    root.lastClickedRow = row
+                                    mouse.accepted = true
+                                    return
+                                }
+
+                                // Plain left click → begin drag selection
+                                if (row < 0) {
+                                    clearSelection()
+                                    return
+                                }
+
+                                var charPos = charPosInRow(row, mouse.x, mouse.y)
+                                root._dragSelecting = true
+                                root._dragStartModelRow = row
+                                root._dragStartCharPos = charPos
+                                root._dragEndModelRow = row
+                                root._dragEndCharPos = charPos
+                                root.lastClickedRow = row
+
+                                // Activate single-row edit mode
+                                var entryObj = terminalModel.get(row)
+                                if (entryObj) {
+                                    root.activeEditRow = entryObj.entryIndex
+                                    selectOnly(entryObj.entryIndex)
+                                    // _selStart will be set precisely after editText becomes visible
+                                    root._selStart = charPos
+                                    // Try to get precise position from editText (may not be visible yet)
+                                    var item2 = terminalView.itemAtIndex(row)
+                                    if (item2) {
+                                        var et2 = findEditText(item2)
+                                        if (et2 && et2.visible) {
+                                            var lp = terminalMouseOverlay.mapToItem(et2, mouse.x, mouse.y)
+                                            root._selStart = et2.positionAt(lp.x, lp.y)
+                                        }
+                                    }
+                                }
+                                root._dragSelVersion++
+                            }
+
+                            onPositionChanged: function(mouse) {
+                                if (!pressed || !root._dragSelecting) return
+                                var row = rowAtY(mouse.y)
+                                if (row < 0) return
+                                var charPos = charPosInRow(row, mouse.x, mouse.y)
+                                root._dragEndModelRow = row
+                                root._dragEndCharPos = charPos
+
+                                var startRow = root._dragStartModelRow
+                                var endRow = row
+
+                                if (startRow === endRow) {
+                                    // Single-row: use TextEdit selection
+                                    var entryObj = terminalModel.get(startRow)
+                                    if (entryObj) {
+                                        root.activeEditRow = entryObj.entryIndex
+                                        selectOnly(entryObj.entryIndex)
+                                        // Restore _selStart if returning from multi-row
+                                        if (root._selStart < 0)
+                                            root._selStart = root._dragStartCharPos
+                                        var item = terminalView.itemAtIndex(startRow)
+                                        if (item) {
+                                            var et = findEditText(item)
+                                            if (et) {
+                                                // Map overlay mouse → editText local coords
+                                                var localPt = terminalMouseOverlay.mapToItem(et, mouse.x, mouse.y)
+                                                var pos = et.positionAt(localPt.x, localPt.y)
+                                                et.select(root._selStart, pos)
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // Multi-row: deactivate single-row TextEdit, use visual overlay
+                                    root.activeEditRow = -1
+                                    root._selStart = -1
+                                    // Update selectedSet to cover the range
+                                    var lo = Math.min(startRow, endRow)
+                                    var hi = Math.max(startRow, endRow)
+                                    var s = {}
+                                    for (var i = lo; i <= hi; i++) {
+                                        var e = terminalModel.get(i)
+                                        if (e) s[e.entryIndex] = true
+                                    }
+                                    root.selectedSet = s
+                                    root.selectionVersion++
+                                }
+                                root._dragSelVersion++
+                            }
+
+                            onReleased: function(mouse) {
+                                if (root._dragSelecting) {
+                                    root._dragSelecting = false
+                                    root._selStart = -1
+                                    // If it was a single-row click with no drag, keep the TextEdit active
+                                    if (root._dragStartModelRow === root._dragEndModelRow &&
+                                        root._dragStartCharPos === root._dragEndCharPos) {
+                                        // Single click, no drag — activate TextEdit for that row
+                                        var entryObj = terminalModel.get(root._dragStartModelRow)
+                                        if (entryObj) root.activeEditRow = entryObj.entryIndex
+                                    }
                                 }
                             }
+
                             onWheel: function(wheel) {
                                 if ((wheel.modifiers & Qt.ControlModifier) && (wheel.modifiers & Qt.ShiftModifier)) {
                                     if (wheel.angleDelta.y > 0 && root.uiScale < 2.0)
@@ -3308,6 +3482,60 @@ Window {
         return ""
     }
 
+    // ── Cross-line drag selection helpers ────────────────────────
+    // Returns { type: "none"|"full"|"head"|"tail"|"both", charStart, charEnd }
+    function getDragSelectionInfo(modelRow) {
+        var none = { type: "none", charStart: 0, charEnd: 0 }
+        if (root._dragStartModelRow < 0 || root._dragEndModelRow < 0) return none
+        // Only show partial highlight in multi-row mode
+        if (root._dragStartModelRow === root._dragEndModelRow) return none
+
+        var lo = Math.min(root._dragStartModelRow, root._dragEndModelRow)
+        var hi = Math.max(root._dragStartModelRow, root._dragEndModelRow)
+        if (modelRow < lo || modelRow > hi) return none
+
+        var startIsTop = root._dragStartModelRow <= root._dragEndModelRow
+        var topCharPos = startIsTop ? root._dragStartCharPos : root._dragEndCharPos
+        var botCharPos = startIsTop ? root._dragEndCharPos : root._dragStartCharPos
+
+        if (modelRow === lo) {
+            // First row: from char position to end
+            return { type: "head", charStart: topCharPos, charEnd: 0 }
+        }
+        if (modelRow === hi) {
+            // Last row: from start to char position
+            return { type: "tail", charStart: 0, charEnd: botCharPos }
+        }
+        // Middle rows: full selection
+        return { type: "full", charStart: 0, charEnd: 0 }
+    }
+
+    function stripHtmlToPlain(html) {
+        return html.replace(/<[^>]*>/g, "")
+                   .replace(/&gt;/g, ">")
+                   .replace(/&lt;/g, "<")
+                   .replace(/&amp;/g, "&")
+                   .replace(/&quot;/g, "\"")
+                   .replace(/&#39;/g, "'")
+    }
+
+    function getCharXInDelegate(delegateItem, charPos) {
+        if (charPos <= 0) return 0
+        var charWidth = monoCharMetrics.advanceWidth
+        if (charWidth <= 0) return 0
+        for (var i = 0; i < delegateItem.children.length; i++) {
+            var child = delegateItem.children[i]
+            if (!child.children) continue
+            for (var j = 0; j < child.children.length; j++) {
+                var gc = child.children[j]
+                if (gc.objectName === "displayText" || (gc.objectName === "editText" && gc.visible)) {
+                    return child.x + gc.x + charPos * charWidth
+                }
+            }
+        }
+        return 0
+    }
+
     // ── Selection ───────────────────────────────────────────────
     function selectOnly(entryIdx) {
         var s = {}
@@ -3343,6 +3571,12 @@ Window {
         root.selectionVersion++
         root.lastClickedRow = -1
         root.activeEditRow = -1
+        root._dragSelecting = false
+        root._dragStartModelRow = -1
+        root._dragStartCharPos = -1
+        root._dragEndModelRow = -1
+        root._dragEndCharPos = -1
+        root._dragSelVersion++
     }
 
     function selectAllEntries() {
@@ -3406,7 +3640,7 @@ Window {
     }
 
     function copySelectedOrInlineText() {
-        // If a TextEdit has selected text, copy that (partial line)
+        // 1) Single-row TextEdit selection (char-level within one row)
         if (root.activeEditRow >= 0) {
             var item = terminalView.itemAtIndex !== undefined
                 ? terminalView.itemAtIndex(getModelIndexForEntry(root.activeEditRow))
@@ -3419,8 +3653,43 @@ Window {
                 }
             }
         }
-        // Fallback: copy whole selected lines
+        // 2) Cross-line drag selection with partial first/last row
+        if (root._dragStartModelRow >= 0 && root._dragEndModelRow >= 0 &&
+            root._dragStartModelRow !== root._dragEndModelRow) {
+            copyCrossLineSelection()
+            return
+        }
+        // 3) Fallback: copy whole selected lines
         copySelectedEntries()
+    }
+
+    function copyCrossLineSelection() {
+        var startIsTop = root._dragStartModelRow <= root._dragEndModelRow
+        var lo = Math.min(root._dragStartModelRow, root._dragEndModelRow)
+        var hi = Math.max(root._dragStartModelRow, root._dragEndModelRow)
+        var topCharPos = startIsTop ? root._dragStartCharPos : root._dragEndCharPos
+        var botCharPos = startIsTop ? root._dragEndCharPos : root._dragStartCharPos
+        var lines = []
+
+        for (var i = lo; i <= hi; i++) {
+            var entry = terminalModel.get(i)
+            if (!entry) continue
+            var fullText = buildEntryText(entry)
+            // charPos is relative to displayText (prefix+data, no timestamp/lineNum).
+            // buildEntryText prepends timestamp+space and lineNum, so compute the offset.
+            var prefixOffset = 0
+            if (root.showTimestamp)
+                prefixOffset += String(entry.timestamp).length + 1  // +1 for space
+            if (i === lo) {
+                lines.push(fullText.substring(Math.max(0, prefixOffset + topCharPos)))
+            } else if (i === hi) {
+                lines.push(fullText.substring(0, Math.max(0, prefixOffset + botCharPos)))
+            } else {
+                lines.push(fullText)
+            }
+        }
+        if (lines.length > 0)
+            copyToClipboard(lines.join("\n"))
     }
 
     function findEditText(item) {
