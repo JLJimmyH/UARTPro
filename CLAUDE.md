@@ -66,6 +66,39 @@ UARTPro — Qt 6 (6.2+) QML + C++ 無邊框 Windows 串列埠終端機。使用 
 
 QML 檔案必須同時註冊到 [CMakeLists.txt](CMakeLists.txt) 的 `qt_add_qml_module` 的 `QML_FILES` 區塊才會被打包進 qrc,新增 QML 元件時不要忘記這一步。
 
+## Terminal 跨行拖曳選取機制
+
+這是 main.qml 中最複雜的互動邏輯,改動前必須理解以下架構:
+
+### 兩層選取系統
+
+1. **單行字元選取** — `activeEditRow` 指向某行時,該行的 `editText`（TextEdit）變 visible,用 `editText.select(start, end)` 做原生反白。`_selStart` 記錄起點。
+2. **跨行拖曳選取** — `_dragStartModelRow/CharPos` + `_dragEndModelRow/CharPos` 記錄首尾行及字元位置。中間行透過 `selectedSet` 整行標記。視覺高亮由 delegate 內的 `partialSelRect`（Rectangle + clip + 反色文字）實現。
+
+### 關鍵陷阱
+
+- **MouseArea 是全域的**:所有左鍵互動由 `terminalMouseOverlay`（z=2,覆蓋整個 terminal Item）處理,delegate 內**沒有** MouseArea。座標轉換必須用 `mapToItem(terminalView.contentItem, ...)` 和 `mapToItem(editText, ...)`。
+- **charPos 座標系**:`charPosInRow` 返回的位置是相對於 `displayText` 的,displayText 包含 prefix（`RX> ` 等）但**不包含** timestamp 和行號。改 copy 邏輯時注意這個對齊。
+- **字元寬度用 `monoCharMetrics.advanceWidth`**:不能用 `contentWidth / charCount`,因為 RichText 的 bold keyword highlight 會讓 contentWidth 偏大。
+- **HTML entity**:`displayText` 是 RichText,`text` 屬性包含 `&gt;` `&lt;` `&amp;` 等 entity。算純文字長度時必須用 `stripHtmlToPlain()` 先解碼。
+- **`_selStart` 延遲計算**:`onPressed` 時 editText 剛變 visible,佈局未完成,`positionAt` 不可靠。改為存 `_dragPressMouseX/Y`,在第一次 `onPositionChanged` 時才用 `positionAt` 算精確值。
+- **editText 狀態殘留**:delegate 回收時 editText 可能保留舊選取。已加 `onVisibleChanged: if (visible) deselect()` 清除。
+
+### copy 行為（`copyCrossLineSelection`）
+
+- **首尾行**:用 `getDisplayPlainText(entry)` 取 prefix+data 純文字,再依 charPos 做 `substring`。charPos 自然決定是否包含 prefix。Timestamp 不在 displayText 中,永遠不包含。
+- **中間行**:只複製原始資料（`msgText` 或 `hexData`）,不加 timestamp、不加 prefix。
+- **視覺一致**:`partialSelRect` 的 "full" 類型從 `displayText.x` 開始,不覆蓋 timestamp 區域。
+
+### getDragSelectionInfo 返回值
+
+| type | 含義 | charStart | charEnd |
+|------|------|-----------|---------|
+| none | 不在選取範圍 | - | - |
+| full | 中間行,整行資料選取 | - | - |
+| head | 首行,從 charStart 到行尾 | ✓ | - |
+| tail | 尾行,從行首到 charEnd | - | ✓ |
+
 ## 版本資訊
 
 `version.h` 定義 `APP_NAME` / `APP_VERSION_STR`,透過 context property 傳給 QML。

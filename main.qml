@@ -2431,6 +2431,7 @@ Window {
                                 // Partial-line selection highlight for cross-line drag
                                 Rectangle {
                                     id: partialSelRect
+                                    z: 10  // above dataRow so it covers text
                                     visible: {
                                         root._dragSelVersion
                                         if (!root._dragSelecting && root._dragStartModelRow < 0) return false
@@ -2438,23 +2439,57 @@ Window {
                                         return info.type !== "none"
                                     }
                                     y: 0; height: parent.height
-                                    color: Qt.rgba(root.colorAccent.r, root.colorAccent.g, root.colorAccent.b, 0.25)
+                                    color: Qt.rgba(root.colorAccent.r, root.colorAccent.g, root.colorAccent.b, 0.6)
+                                    clip: true
+
+                                    // Re-render the row text in selectedTextColor inside the highlight rect
+                                    Row {
+                                        // Position this row so its text aligns exactly with dataRow
+                                        x: dataRow.x - partialSelRect.x
+                                        y: dataRow.y
+                                        spacing: dataRow.spacing
+
+                                        Text {
+                                            visible: root.showLineNumbers
+                                            text: String(entryDelegate.entryIndex + 1).padStart(4, ' ')
+                                            font.family: root.fontMono
+                                            font.pixelSize: root.terminalFontSize
+                                            color: root.colorBg
+                                        }
+                                        Text {
+                                            visible: root.showTimestamp
+                                            text: entryDelegate.timestamp || ""
+                                            font.family: root.fontMono
+                                            font.pixelSize: root.terminalFontSize
+                                            color: root.colorBg
+                                        }
+                                        Text {
+                                            text: displayText.text
+                                            textFormat: Text.RichText
+                                            font.family: root.fontMono
+                                            font.pixelSize: root.terminalFontSize
+                                            color: root.colorBg
+                                            wrapMode: Text.WrapAnywhere
+                                            width: displayText.width
+                                        }
+                                    }
+
                                     x: {
                                         root._dragSelVersion
                                         var info = root.getDragSelectionInfo(entryDelegate.index)
-                                        if (info.type === "full" || info.type === "none") return 0
+                                        if (info.type === "none") return 0
+                                        if (info.type === "full") return dataRow.x + displayText.x
                                         if (info.type === "head") {
-                                            // from charStart to end of line
                                             return root.getCharXInDelegate(entryDelegate, info.charStart)
                                         }
-                                        // tail: from start of text to charEnd
+                                        // tail: from start of displayText to charEnd
                                         return dataRow.x + displayText.x
                                     }
                                     width: {
                                         root._dragSelVersion
                                         var info = root.getDragSelectionInfo(entryDelegate.index)
-                                        if (info.type === "full") return parent.width
                                         if (info.type === "none") return 0
+                                        if (info.type === "full") return parent.width - (dataRow.x + displayText.x)
                                         if (info.type === "head") {
                                             var startX = root.getCharXInDelegate(entryDelegate, info.charStart)
                                             return parent.width - startX
@@ -3662,6 +3697,23 @@ Window {
         copySelectedEntries()
     }
 
+    // Build the plain text that displayText shows (prefix + data, NO timestamp)
+    function getDisplayPlainText(entry) {
+        var prefix = ""
+        if (root.showPrefix) {
+            switch (String(entry.type)) {
+            case "rx":     prefix = "RX> "; break
+            case "tx":     prefix = "TX> "; break
+            case "system": prefix = "SYS> "; break
+            case "error":  prefix = "ERR> "; break
+            default:       prefix = "> "
+            }
+        }
+        var data = (root.hexDisplayMode && String(entry.hexData) !== "")
+            ? String(entry.hexData) : String(entry.msgText)
+        return prefix + data
+    }
+
     function copyCrossLineSelection() {
         var startIsTop = root._dragStartModelRow <= root._dragEndModelRow
         var lo = Math.min(root._dragStartModelRow, root._dragEndModelRow)
@@ -3673,18 +3725,20 @@ Window {
         for (var i = lo; i <= hi; i++) {
             var entry = terminalModel.get(i)
             if (!entry) continue
-            var fullText = buildEntryText(entry)
-            // charPos is relative to displayText (prefix+data, no timestamp/lineNum).
-            // buildEntryText prepends timestamp+space and lineNum, so compute the offset.
-            var prefixOffset = 0
-            if (root.showTimestamp)
-                prefixOffset += String(entry.timestamp).length + 1  // +1 for space
+
             if (i === lo) {
-                lines.push(fullText.substring(Math.max(0, prefixOffset + topCharPos)))
+                // First row: charPos cuts within displayText (prefix+data)
+                var headText = getDisplayPlainText(entry)
+                lines.push(headText.substring(Math.max(0, topCharPos)))
             } else if (i === hi) {
-                lines.push(fullText.substring(0, Math.max(0, prefixOffset + botCharPos)))
+                // Last row: from start of displayText to charPos
+                var tailText = getDisplayPlainText(entry)
+                lines.push(tailText.substring(0, Math.max(0, botCharPos)))
             } else {
-                lines.push(fullText)
+                // Middle rows: raw data only (no timestamp, no prefix)
+                var data = (root.hexDisplayMode && String(entry.hexData) !== "")
+                    ? String(entry.hexData) : String(entry.msgText)
+                lines.push(data)
             }
         }
         if (lines.length > 0)

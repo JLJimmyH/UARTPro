@@ -5,9 +5,9 @@
 // 修改這裡即可統一更新所有版本號顯示（RC 資源 / C++ / QML）
 #define APP_VERSION_MAJOR   0
 #define APP_VERSION_MINOR   2
-#define APP_VERSION_PATCH   5
+#define APP_VERSION_PATCH   6
 
-#define APP_VERSION_STR     "0.2.5"
+#define APP_VERSION_STR     "0.2.6"
 #define APP_NAME            "UART PRO"
 
 #endif // VERSION_H
