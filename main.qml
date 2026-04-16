@@ -198,6 +198,8 @@ Window {
     property int _dragEndModelRow: -1     // model index where drag currently is
     property int _dragEndCharPos: -1      // character offset within end row
     property int _dragSelVersion: 0       // bump to trigger delegate re-eval
+    property real _dragPressMouseX: 0     // raw mouse X at press time (for deferred _selStart)
+    property real _dragPressMouseY: 0     // raw mouse Y at press time
     property int keywordRevision: 0
     property int filterRevision: 0
     property int kwColorIndex: 0
@@ -2420,6 +2422,9 @@ Window {
                                         selectionColor: Qt.rgba(root.colorAccent.r, root.colorAccent.g, root.colorAccent.b, 0.6)
                                         wrapMode: TextEdit.WrapAnywhere
                                         width: parent.width - x
+                                        onVisibleChanged: {
+                                            if (visible) deselect()
+                                        }
                                     }
                                 }
 
@@ -2567,18 +2572,11 @@ Window {
                                 if (entryObj) {
                                     root.activeEditRow = entryObj.entryIndex
                                     selectOnly(entryObj.entryIndex)
-                                    // _selStart will be set precisely after editText becomes visible
-                                    root._selStart = charPos
-                                    // Try to get precise position from editText (may not be visible yet)
-                                    var item2 = terminalView.itemAtIndex(row)
-                                    if (item2) {
-                                        var et2 = findEditText(item2)
-                                        if (et2 && et2.visible) {
-                                            var lp = terminalMouseOverlay.mapToItem(et2, mouse.x, mouse.y)
-                                            root._selStart = et2.positionAt(lp.x, lp.y)
-                                        }
-                                    }
                                 }
+                                // Defer _selStart to first onPositionChanged (editText needs layout pass)
+                                root._selStart = -1
+                                root._dragPressMouseX = mouse.x
+                                root._dragPressMouseY = mouse.y
                                 root._dragSelVersion++
                             }
 
@@ -2599,14 +2597,15 @@ Window {
                                     if (entryObj) {
                                         root.activeEditRow = entryObj.entryIndex
                                         selectOnly(entryObj.entryIndex)
-                                        // Restore _selStart if returning from multi-row
-                                        if (root._selStart < 0)
-                                            root._selStart = root._dragStartCharPos
                                         var item = terminalView.itemAtIndex(startRow)
                                         if (item) {
                                             var et = findEditText(item)
                                             if (et) {
-                                                // Map overlay mouse → editText local coords
+                                                // Compute _selStart on first drag (editText is now laid out)
+                                                if (root._selStart < 0) {
+                                                    var startPt = terminalMouseOverlay.mapToItem(et, root._dragPressMouseX, root._dragPressMouseY)
+                                                    root._selStart = et.positionAt(startPt.x, startPt.y)
+                                                }
                                                 var localPt = terminalMouseOverlay.mapToItem(et, mouse.x, mouse.y)
                                                 var pos = et.positionAt(localPt.x, localPt.y)
                                                 et.select(root._selStart, pos)
