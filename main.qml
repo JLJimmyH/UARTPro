@@ -2226,7 +2226,10 @@ Window {
                         ListView {
                             id: terminalView
                             anchors.fill: parent
-                            anchors.margins: 8
+                            anchors.leftMargin: 8
+                            anchors.topMargin: 8
+                            anchors.bottomMargin: 8
+                            anchors.rightMargin: 0   // scrollbar sits on the right edge
                             model: terminalModel
                             clip: true
                             interactive: false   // disable mouse-drag scrolling; wheel still works via MouseArea
@@ -2267,15 +2270,33 @@ Window {
                             ScrollBar.vertical: ScrollBar {
                                 id: terminalScrollBar
                                 policy: ScrollBar.AsNeeded
+                                hoverEnabled: true
+                                // Stick to the right edge of the ListView
+                                anchors.right: parent ? parent.right : undefined
+                                width: 12
+
+                                // User dragging scrollbar upward disables auto-scroll
+                                property real _lastPos: 0
+                                onPositionChanged: {
+                                    if (pressed && position < _lastPos - 0.0005) {
+                                        root.autoScroll = false
+                                    }
+                                    _lastPos = position
+                                }
                                 contentItem: Rectangle {
-                                    implicitWidth: 6
+                                    implicitWidth: 12
                                     color: root.colorAccent
-                                    opacity: 0.4
+                                    opacity: terminalScrollBar.pressed ? 0.9
+                                           : (terminalScrollBar.hovered ? 0.7 : 0.4)
                                     radius: 3
+                                    Behavior on opacity { NumberAnimation { duration: 120 } }
                                 }
                                 background: Rectangle {
-                                    implicitWidth: 6
-                                    color: "transparent"
+                                    implicitWidth: 12
+                                    color: terminalScrollBar.hovered
+                                        ? Qt.rgba(root.colorAccent.r, root.colorAccent.g, root.colorAccent.b, 0.08)
+                                        : "transparent"
+                                    Behavior on color { ColorAnimation { duration: 120 } }
                                 }
                             }
 
@@ -2507,6 +2528,9 @@ Window {
                         MouseArea {
                             id: terminalMouseOverlay
                             anchors.fill: parent
+                            // Leave room for the ScrollBar so it can receive clicks/drags
+                            // ScrollBar sits flush with parent's right edge now (ListView rightMargin=0)
+                            anchors.rightMargin: terminalScrollBar.visible ? terminalScrollBar.width : 0
                             z: 2
                             acceptedButtons: Qt.LeftButton | Qt.RightButton
                             hoverEnabled: false
