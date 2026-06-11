@@ -207,6 +207,9 @@ Window {
     property int kwColorIndex: 0
     readonly property var kwPalette: ["#ff3366", "#ffaa00", "#00ff88", "#00d4ff",
                                       "#ff00ff", "#ffff00", "#ff6600", "#aa66ff"]
+    // 雙擊 chip 編輯回填時暫存原色彩/模式,讓重新加入保留設定
+    property string _pendingKwColor: ""
+    property string _pendingKwMode: ""
 
     // ── Search State ──────────────────────────────────────────────
     property bool searchBarVisible: false
@@ -395,6 +398,36 @@ Window {
                 return
             toggleConnection()
         }
+    }
+    Shortcut {
+        sequence: "F1"
+        context: Qt.ApplicationShortcut
+        onActivated: root.helpPopupVisible = true
+    }
+    Shortcut {
+        sequence: "F3"
+        context: Qt.ApplicationShortcut
+        onActivated: if (root.searchMatches.length > 0) jumpToMatch(1)
+    }
+    Shortcut {
+        sequence: "Shift+F3"
+        context: Qt.ApplicationShortcut
+        onActivated: if (root.searchMatches.length > 0) jumpToMatch(-1)
+    }
+    Shortcut {
+        sequence: "End"
+        context: Qt.ApplicationShortcut
+        onActivated: {
+            if (sendInput.activeFocus || searchInput.activeFocus || filterInput.activeFocus)
+                return
+            root.autoScroll = true
+            terminalView.positionViewAtEnd()
+        }
+    }
+    Shortcut {
+        sequence: "Ctrl+S"
+        context: Qt.ApplicationShortcut
+        onActivated: toggleLogging()
     }
 
     // ── Scaled Content Wrapper ──────────────────────────────────
@@ -1289,11 +1322,24 @@ Window {
 
                                             MouseArea {
                                                 anchors.fill: parent
+                                                hoverEnabled: true
                                                 cursorShape: Qt.PointingHandCursor
+                                                ToolTip.visible: containsMouse
+                                                ToolTip.delay: 600
+                                                ToolTip.text: "Click: enable/disable · Double-click: edit"
                                                 onClicked: {
                                                     keywordModel.setProperty(index, "enabled", !model.enabled)
                                                     root.keywordRevision++
                                                     syncKeywordsToConfig()
+                                                }
+                                                onDoubleClicked: {
+                                                    filterTypeCombo.currentIndex = 0
+                                                    root._pendingKwColor = model.color
+                                                    root._pendingKwMode = model.mode
+                                                    filterInput.text = model.text
+                                                    keywordModel.remove(index)
+                                                    filterInput.forceActiveFocus()
+                                                    filterInput.cursorPosition = filterInput.text.length
                                                 }
                                             }
 
@@ -1310,7 +1356,11 @@ Window {
                                                     MouseArea {
                                                         anchors.fill: parent
                                                         anchors.margins: -3
+                                                        hoverEnabled: true
                                                         cursorShape: Qt.PointingHandCursor
+                                                        ToolTip.visible: containsMouse
+                                                        ToolTip.delay: 600
+                                                        ToolTip.text: "Change color"
                                                         onClicked: {
                                                             colorPickerPopup.targetIndex = index
                                                             var pos = parent.mapToItem(root.contentItem, 0, 0)
@@ -1330,7 +1380,11 @@ Window {
                                                     MouseArea {
                                                         anchors.fill: parent
                                                         anchors.margins: -3
+                                                        hoverEnabled: true
                                                         cursorShape: Qt.PointingHandCursor
+                                                        ToolTip.visible: containsMouse
+                                                        ToolTip.delay: 600
+                                                        ToolTip.text: "Highlight mode — BG: background / FG: text / LN: full line. Click to cycle"
                                                         onClicked: {
                                                             var modes = ["bg", "text", "line"]
                                                             var cur = modes.indexOf(model.mode)
@@ -1361,6 +1415,9 @@ Window {
                                                         anchors.margins: -4
                                                         hoverEnabled: true
                                                         cursorShape: Qt.PointingHandCursor
+                                                        ToolTip.visible: containsMouse
+                                                        ToolTip.delay: 600
+                                                        ToolTip.text: "Show / hide highlight"
                                                         onClicked: {
                                                             keywordModel.setProperty(index, "enabled", !model.enabled)
                                                             root.keywordRevision++
@@ -1382,6 +1439,9 @@ Window {
                                                         anchors.margins: -4
                                                         hoverEnabled: true
                                                         cursorShape: Qt.PointingHandCursor
+                                                        ToolTip.visible: containsMouse
+                                                        ToolTip.delay: 600
+                                                        ToolTip.text: "Remove"
                                                         onClicked: {
                                                             root.keywordRevision++
                                                             keywordModel.remove(index)
@@ -1468,11 +1528,23 @@ Window {
 
                                             MouseArea {
                                                 anchors.fill: parent
+                                                hoverEnabled: true
                                                 cursorShape: Qt.PointingHandCursor
+                                                ToolTip.visible: containsMouse
+                                                ToolTip.delay: 600
+                                                ToolTip.text: "Click: enable/disable · Double-click: edit"
                                                 onClicked: {
                                                     filterModel.setProperty(index, "enabled", !model.enabled)
                                                     root.filterRevision++
                                                     scheduleFilterSync()
+                                                }
+                                                onDoubleClicked: {
+                                                    filterTypeCombo.currentIndex = 1
+                                                    filterSubTypeCombo.currentIndex = (model.filterType === "include") ? 0 : 1
+                                                    filterInput.text = model.text
+                                                    filterModel.remove(index)
+                                                    filterInput.forceActiveFocus()
+                                                    filterInput.cursorPosition = filterInput.text.length
                                                 }
                                             }
 
@@ -1508,6 +1580,9 @@ Window {
                                                             anchors.margins: -4
                                                             hoverEnabled: true
                                                             cursorShape: Qt.PointingHandCursor
+                                                            ToolTip.visible: containsMouse
+                                                            ToolTip.delay: 600
+                                                            ToolTip.text: "Enable / disable filter"
                                                             onClicked: {
                                                                 filterModel.setProperty(index, "enabled", !model.enabled)
                                                                 root.filterRevision++
@@ -1529,6 +1604,9 @@ Window {
                                                             anchors.margins: -4
                                                             hoverEnabled: true
                                                             cursorShape: Qt.PointingHandCursor
+                                                            ToolTip.visible: containsMouse
+                                                            ToolTip.delay: 600
+                                                            ToolTip.text: "Remove"
                                                             onClicked: filterModel.remove(index)
                                                         }
                                                     }
@@ -1612,11 +1690,23 @@ Window {
 
                                             MouseArea {
                                                 anchors.fill: parent
+                                                hoverEnabled: true
                                                 cursorShape: Qt.PointingHandCursor
+                                                ToolTip.visible: containsMouse
+                                                ToolTip.delay: 600
+                                                ToolTip.text: "Click: enable/disable · Double-click: edit"
                                                 onClicked: {
                                                     filterModel.setProperty(index, "enabled", !model.enabled)
                                                     root.filterRevision++
                                                     scheduleFilterSync()
+                                                }
+                                                onDoubleClicked: {
+                                                    filterTypeCombo.currentIndex = 1
+                                                    filterSubTypeCombo.currentIndex = (model.filterType === "include") ? 0 : 1
+                                                    filterInput.text = model.text
+                                                    filterModel.remove(index)
+                                                    filterInput.forceActiveFocus()
+                                                    filterInput.cursorPosition = filterInput.text.length
                                                 }
                                             }
 
@@ -1652,6 +1742,9 @@ Window {
                                                             anchors.margins: -4
                                                             hoverEnabled: true
                                                             cursorShape: Qt.PointingHandCursor
+                                                            ToolTip.visible: containsMouse
+                                                            ToolTip.delay: 600
+                                                            ToolTip.text: "Enable / disable filter"
                                                             onClicked: {
                                                                 filterModel.setProperty(index, "enabled", !model.enabled)
                                                                 root.filterRevision++
@@ -1673,6 +1766,9 @@ Window {
                                                             anchors.margins: -4
                                                             hoverEnabled: true
                                                             cursorShape: Qt.PointingHandCursor
+                                                            ToolTip.visible: containsMouse
+                                                            ToolTip.delay: 600
+                                                            ToolTip.text: "Remove"
                                                             onClicked: filterModel.remove(index)
                                                         }
                                                     }
@@ -1786,16 +1882,7 @@ Window {
                             text: fileLogger.logging ? "STOP LOGGING" : "LOG TO FILE"
                             accentColor: fileLogger.logging ? root.colorDestructive : root.colorAccent
                             bgColor: root.colorBg; borderMutedColor: root.colorBorder
-                            onClicked: {
-                                if (fileLogger.logging) {
-                                    fileLogger.stopLogging()
-                                    var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
-                                    addTerminalEntry(ts, "Logging stopped — " + fileLogger.logFilePath, "", "system")
-                                } else {
-                                    logSaveDialog.selectedFile = "file:///" + fileLogger.generateDefaultPath()
-                                    logSaveDialog.open()
-                                }
-                            }
+                            onClicked: toggleLogging()
                         }
 
                         // 目前 LOG 檔名顯示(僅在記錄中顯示)
@@ -1983,11 +2070,24 @@ Window {
                             }
 
                             Text {
-                                text: terminalModel.count + " ENTRIES"
+                                visible: terminalModel.filterActive
+                                text: "[FILTERED]"
                                 font.family: root.fontMono
                                 font.pixelSize: 10
                                 font.letterSpacing: 1
-                                color: root.colorMutedFg
+                                font.bold: true
+                                color: "#ffaa00"
+                            }
+
+                            Text {
+                                // filter 生效時顯示 shown/total,避免誤以為沒收到資料
+                                text: terminalModel.filterActive
+                                      ? (terminalModel.count + "/" + terminalModel.totalCount + " ENTRIES")
+                                      : (terminalModel.count + " ENTRIES")
+                                font.family: root.fontMono
+                                font.pixelSize: 10
+                                font.letterSpacing: 1
+                                color: terminalModel.filterActive ? "#ffaa00" : root.colorMutedFg
                             }
 
                             BroomIcon {
@@ -2843,6 +2943,7 @@ Window {
                         }
 
                         // ── Search match markers on scrollbar ──
+                        // 單一 Canvas 繪製: 命中數萬筆時不再建立數萬個 item
                         Item {
                             id: searchMarkerBar
                             anchors.right: parent.right
@@ -2853,20 +2954,40 @@ Window {
                             z: 5
                             visible: root.searchBarVisible && root.searchMatches.length > 0
 
-                            Repeater {
-                                model: root.searchMatches
-                                Rectangle {
-                                    readonly property int matchModelIndex: modelData
-                                    readonly property bool isCurrent:
-                                        root.searchCurrentIndex >= 0 &&
-                                        root.searchMatches[root.searchCurrentIndex] === matchModelIndex
-                                    width: searchMarkerBar.width
-                                    height: Math.max(2, searchMarkerBar.height / Math.max(1, terminalModel.count) * 1.5)
-                                    radius: 1
-                                    color: isCurrent ? "#ffaa00" : Qt.rgba(1, 0.667, 0, 0.6)
-                                    y: terminalModel.count > 0
-                                        ? (matchModelIndex / terminalModel.count) * (searchMarkerBar.height - height)
-                                        : 0
+                            Canvas {
+                                id: searchMarkerCanvas
+                                anchors.fill: parent
+                                onPaint: {
+                                    var ctx = getContext("2d")
+                                    ctx.clearRect(0, 0, width, height)
+                                    var total = terminalModel.count
+                                    if (total <= 0) return
+                                    var matches = root.searchMatches
+                                    var cur = root.searchCurrentIndex >= 0
+                                        ? matches[root.searchCurrentIndex] : -1
+                                    var h = Math.max(2, height / total * 1.5)
+                                    ctx.fillStyle = "rgba(255,170,0,0.6)"
+                                    for (var i = 0; i < matches.length; i++) {
+                                        if (matches[i] === cur) continue
+                                        ctx.fillRect(0, (matches[i] / total) * (height - h), width, h)
+                                    }
+                                    if (cur >= 0) {
+                                        ctx.fillStyle = "#ffaa00"
+                                        ctx.fillRect(0, (cur / total) * (height - h), width, h)
+                                    }
+                                }
+                                onHeightChanged: requestPaint()
+                            }
+
+                            Connections {
+                                target: root
+                                function onSearchMatchesChanged()      { searchMarkerCanvas.requestPaint() }
+                                function onSearchCurrentIndexChanged() { searchMarkerCanvas.requestPaint() }
+                            }
+                            Connections {
+                                target: terminalModel
+                                function onCountChanged() {
+                                    if (searchMarkerBar.visible) searchMarkerCanvas.requestPaint()
                                 }
                             }
                         }
@@ -3226,10 +3347,15 @@ Window {
 
             Repeater {
                 model: [
+                    { key: "F1",               desc: "Show this help" },
                     { key: "Ctrl + L",         desc: "Clear terminal" },
                     { key: "Ctrl + C",         desc: "Copy selected text" },
+                    { key: "Ctrl + A",         desc: "Select all" },
                     { key: "Ctrl + F",         desc: "Find" },
+                    { key: "F3 / Shift + F3",  desc: "Next / previous match" },
                     { key: "Escape",           desc: "Close search" },
+                    { key: "End",              desc: "Jump to latest" },
+                    { key: "Ctrl + S",         desc: "Start / stop logging" },
                     { key: "Ctrl + =",         desc: "Zoom in (terminal font)" },
                     { key: "Ctrl + -",         desc: "Zoom out (terminal font)" },
                     { key: "Ctrl + 0",         desc: "Reset zoom (terminal font)" },
@@ -3238,6 +3364,7 @@ Window {
                     { key: "Ctrl + Shift + 0", desc: "Reset UI scale" },
                     { key: "Space",            desc: "Toggle connection" },
                     { key: "Enter",            desc: "Send / Search / Add filter" },
+                    { key: "Double-click chip", desc: "Edit keyword / filter" },
                     { key: "Right-click",      desc: "Context menu" }
                 ]
 
@@ -3281,10 +3408,8 @@ Window {
 
         // 每批 flush(~16ms)呼叫一次: 批次寫 log + 單次 autoscroll
         function onEntriesAppended(entries) {
-            if (fileLogger.logging) {
-                for (var i = 0; i < entries.length; i++)
-                    fileLogger.logLine(formatEntryForLog(entries[i]))
-            }
+            if (fileLogger.logging)
+                logEntriesToFile(entries)
             if (root.autoScroll)
                 terminalView.positionViewAtEnd()
         }
@@ -3367,12 +3492,23 @@ Window {
         return line
     }
 
+    // jsonl: 逐筆結構化(schema 固定); text: 依 UI 偏好格式化後批次寫入
+    function logEntriesToFile(entries) {
+        if (fileLogger.format === "jsonl") {
+            for (var i = 0; i < entries.length; i++)
+                fileLogger.logStructured(entries[i].type, entries[i].msgText, entries[i].hexData)
+        } else {
+            var lines = []
+            for (var j = 0; j < entries.length; j++)
+                lines.push(formatEntryForLog(entries[j]))
+            fileLogger.logLines(lines)
+        }
+    }
+
     function logExistingEntriesToFile() {
         if (!fileLogger.logging)
             return
-        var entries = terminalModel.allEntries()
-        for (var i = 0; i < entries.length; i++)
-            fileLogger.logLine(formatEntryForLog(entries[i]))
+        logEntriesToFile(terminalModel.allEntries())
     }
 
     function addTerminalEntry(timestamp, data, hexData, type) {
@@ -3438,23 +3574,40 @@ Window {
         return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
     }
 
+    // 已編譯 regex 快取: delegate 每次求值不再對每個 keyword new RegExp
+    // (可見列 × keyword 數 × 捲動次數的正則編譯熱點)
+    property var _kwCache: ({ rev: -1, hl: [], line: [] })
+
+    function getKeywordCache() {
+        if (_kwCache.rev === root.keywordRevision) return _kwCache
+        var hl = [], line = []
+        for (var i = 0; i < keywordModel.count; i++) {
+            var kw = keywordModel.get(i)
+            if (!kw.enabled) continue
+            if (kw.mode === "line")
+                line.push({ text: String(kw.text).toLowerCase(), color: kw.color })
+            else
+                hl.push({ re: new RegExp("(<[^>]+>)|(" + escapeRegex(escapeHtml(kw.text)) + ")", "gi"),
+                          color: kw.color, mode: kw.mode })
+        }
+        _kwCache = { rev: root.keywordRevision, hl: hl, line: line }
+        return _kwCache
+    }
+
+    readonly property var _numberRe: /(<[^>]+>)|(\b(?:0x[0-9a-fA-F]+|\d+\.?\d*)\b)/g
+
     function highlightText(raw) {
         var html = escapeHtml(raw)
 
         // Step 1: Keyword highlighting (bg and text modes; line mode handled in delegate)
         // Uses tag-skipping pattern to avoid corrupting previously inserted HTML tags
-        for (var i = 0; i < keywordModel.count; i++) {
-            var kw = keywordModel.get(i)
-            if (!kw.enabled) continue
-            if (kw.mode === "line") continue  // line mode is handled at delegate level
-
-            var escaped = escapeRegex(escapeHtml(kw.text))
-            var re = new RegExp("(<[^>]+>)|(" + escaped + ")", "gi")
+        var hlList = getKeywordCache().hl
+        var bgColor = String(root.colorBg)
+        for (var i = 0; i < hlList.length; i++) {
+            var kw = hlList[i]
             var kwColor = kw.color
             var kwMode = kw.mode
-            var bgColor = String(root.colorBg)
-
-            html = html.replace(re, function(match, tag, text) {
+            html = html.replace(kw.re, function(match, tag, text) {
                 if (tag) return tag  // pass HTML tags through unchanged
                 if (kwMode === "bg")
                     return "<span style='background-color:" + kwColor + ";color:" + bgColor + ";font-weight:bold;'>" + text + "</span>"
@@ -3466,7 +3619,7 @@ Window {
         // Step 2: Color numbers outside HTML tags (won't touch tag attributes)
         if (root.colorNumbers) {
             var numColor = String(root.colorAccentTertiary)
-            html = html.replace(/(<[^>]+>)|(\b(?:0x[0-9a-fA-F]+|\d+\.?\d*)\b)/g, function(match, tag, num) {
+            html = html.replace(root._numberRe, function(match, tag, num) {
                 if (tag) return tag
                 return "<span style='color:" + numColor + ";'>" + num + "</span>"
             })
@@ -3476,12 +3629,12 @@ Window {
     }
 
     function getLineHighlightColor(rawText) {
+        var lineList = getKeywordCache().line
+        if (lineList.length === 0) return ""
         var text = rawText.toLowerCase()
-        for (var i = 0; i < keywordModel.count; i++) {
-            var kw = keywordModel.get(i)
-            if (!kw.enabled || kw.mode !== "line") continue
-            if (text.indexOf(kw.text.toLowerCase()) >= 0)
-                return kw.color
+        for (var i = 0; i < lineList.length; i++) {
+            if (text.indexOf(lineList[i].text) >= 0)
+                return lineList[i].color
         }
         return ""
     }
@@ -3590,6 +3743,17 @@ Window {
         }
         root.selectedSet = s
         root.selectionVersion++
+    }
+
+    function toggleLogging() {
+        if (fileLogger.logging) {
+            fileLogger.stopLogging()
+            var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+            addTerminalEntry(ts, "Logging stopped — " + fileLogger.logFilePath, "", "system")
+        } else {
+            logSaveDialog.selectedFile = "file:///" + fileLogger.generateDefaultPath()
+            logSaveDialog.open()
+        }
     }
 
     function toggleConnection() {
@@ -3816,9 +3980,19 @@ Window {
     function addKeyword(text) {
         text = text.trim()
         if (text === "") return
-        var color = root.kwPalette[root.kwColorIndex % root.kwPalette.length]
-        root.kwColorIndex++
-        keywordModel.append({ text: text, color: color, enabled: true, mode: "bg" })
+        var color, mode
+        if (root._pendingKwColor !== "") {
+            // 雙擊 chip 編輯回填: 保留原色彩與模式
+            color = root._pendingKwColor
+            mode = root._pendingKwMode || "bg"
+            root._pendingKwColor = ""
+            root._pendingKwMode = ""
+        } else {
+            color = root.kwPalette[root.kwColorIndex % root.kwPalette.length]
+            root.kwColorIndex++
+            mode = "bg"
+        }
+        keywordModel.append({ text: text, color: color, enabled: true, mode: mode })
         root.keywordRevision++
         syncKeywordsToConfig()
     }
@@ -3826,6 +4000,8 @@ Window {
     function addFilter(text, filterType) {
         text = text.trim()
         if (text === "") return
+        root._pendingKwColor = ""
+        root._pendingKwMode = ""
         filterModel.append({ text: text, filterType: filterType, enabled: true })
         // onCountChanged 會觸發 scheduleFilterSync
     }
@@ -3957,7 +4133,7 @@ Window {
 
             // --record: auto-start logging
             if (cmdLineRecord !== "") {
-                if (fileLogger.startLogging(cmdLineRecord)) {
+                if (fileLogger.startLogging(cmdLineRecord, cmdLineFormat)) {
                     logExistingEntriesToFile()
                     addTerminalEntry(ts, "Auto-logging started — " + fileLogger.logFilePath, "", "system")
                 } else {
