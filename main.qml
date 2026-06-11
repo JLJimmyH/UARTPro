@@ -2366,6 +2366,9 @@ Window {
                             ScrollBar.vertical: ScrollBar {
                                 id: terminalScrollBar
                                 policy: ScrollBar.AsNeeded
+                                // AsNeeded 的隱藏在 Basic style 是做在「預設 contentItem」的
+                                // opacity state 上;自訂 contentItem 後必須自己依 size 隱藏
+                                visible: size < 1.0
                                 hoverEnabled: true
                                 // Stick to the right edge of the ListView
                                 anchors.right: parent ? parent.right : undefined
@@ -2850,9 +2853,12 @@ Window {
                                 } else {
                                     var step = 60
                                     if (wheel.angleDelta.y > 0) {
-                                        // Scroll up
-                                        terminalView.contentY = Math.max(terminalView.originY, terminalView.contentY - step)
-                                        root.autoScroll = false
+                                        // Scroll up — 內容未滿版時不關 auto-scroll
+                                        // (contentY 動不了,onContentYChanged 無法復原,旗標會卡死)
+                                        if (terminalView.contentHeight > terminalView.height) {
+                                            terminalView.contentY = Math.max(terminalView.originY, terminalView.contentY - step)
+                                            root.autoScroll = false
+                                        }
                                     } else {
                                         // Scroll down — use positionViewAtEnd() near bottom
                                         // to avoid being clamped by estimated contentHeight
