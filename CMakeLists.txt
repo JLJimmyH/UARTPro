@@ -18,6 +18,8 @@ qt_add_executable(${PROJECT_NAME}
     ConfigManager.cpp
     TerminalModel.h
     TerminalModel.cpp
+    HeadlessRunner.h
+    HeadlessRunner.cpp
     version.h
     app.rc
 )

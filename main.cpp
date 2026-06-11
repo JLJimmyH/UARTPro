@@ -1,15 +1,22 @@
 #include <QGuiApplication>
+#include <QCoreApplication>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QCommandLineParser>
 #include <QAbstractNativeEventFilter>
+#include <QSerialPortInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <cstdio>
 #include <memory>
 #include "SerialPortManager.h"
 #include "FileLogger.h"
 #include "ConfigManager.h"
 #include "TerminalModel.h"
+#include "HeadlessRunner.h"
 #include "version.h"
 
 #ifdef Q_OS_WIN
@@ -59,38 +66,165 @@ static void enableSnapForFramelessWindow(HWND hwnd)
                      SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
     }
 }
+
+// GUI subsystem 的 exe 預設沒有 console:
+// - stdout 已被導向(pipe/檔案)時 handle 有效,CRT 直接可用
+// - 互動 console 下 attach 回父行程 console 才看得到輸出
+static void initConsoleIO()
+{
+    HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (h == nullptr || h == INVALID_HANDLE_VALUE) {
+        if (AttachConsole(ATTACH_PARENT_PROCESS)) {
+            FILE *f = nullptr;
+            freopen_s(&f, "CONOUT$", "w", stdout);
+            freopen_s(&f, "CONOUT$", "w", stderr);
+        }
+    }
+}
+
+static HeadlessRunner *g_runner = nullptr;
+
+static BOOL WINAPI consoleCtrlHandler(DWORD type)
+{
+    Q_UNUSED(type)
+    // 從 console handler 執行緒以 queued 方式回到事件迴圈收尾
+    if (g_runner)
+        QMetaObject::invokeMethod(g_runner, "shutdown", Qt::QueuedConnection);
+    else if (qApp)
+        QMetaObject::invokeMethod(qApp, "quit", Qt::QueuedConnection);
+    return TRUE;
+}
 #endif
+
+static bool hasArg(int argc, char *argv[], const char *name)
+{
+    for (int i = 1; i < argc; ++i) {
+        if (qstrcmp(argv[i], name) == 0)
+            return true;
+    }
+    return false;
+}
+
+static void setupParser(QCommandLineParser &parser)
+{
+    parser.setApplicationDescription(QStringLiteral("UART PRO Serial Terminal"));
+    parser.addHelpOption();
+    parser.addOption({ QStringLiteral("config"),
+                       QStringLiteral("Path to configuration JSON file."),
+                       QStringLiteral("path") });
+    parser.addOption({ QStringLiteral("port"),
+                       QStringLiteral("Auto-connect to this serial port on startup (e.g. COM3)."),
+                       QStringLiteral("portName") });
+    parser.addOption({ QStringLiteral("baud"),
+                       QStringLiteral("Baud rate to use for auto-connect (e.g. 115200)."),
+                       QStringLiteral("baudRate") });
+    parser.addOption({ QStringLiteral("record"),
+                       QStringLiteral("Auto-start logging to this file path on startup."),
+                       QStringLiteral("filePath") });
+    parser.addOption({ QStringLiteral("format"),
+                       QStringLiteral("Record format: text (default) or jsonl."),
+                       QStringLiteral("text|jsonl") });
+    parser.addOption({ QStringLiteral("list-ports"),
+                       QStringLiteral("Print available serial ports as JSON and exit.") });
+    parser.addOption({ QStringLiteral("headless"),
+                       QStringLiteral("Run without UI (requires --port). For automation/agents.") });
+    parser.addOption({ QStringLiteral("stdout"),
+                       QStringLiteral("Headless: stream each received line as JSONL to stdout.") });
+    parser.addOption({ QStringLiteral("expect"),
+                       QStringLiteral("Headless: exit 0 when a received line matches this regex."),
+                       QStringLiteral("regex") });
+    parser.addOption({ QStringLiteral("expect-fail"),
+                       QStringLiteral("Headless: exit 5 when a received line matches this regex."),
+                       QStringLiteral("regex") });
+    parser.addOption({ QStringLiteral("timeout"),
+                       QStringLiteral("Headless: exit 4 after this many seconds."),
+                       QStringLiteral("seconds") });
+}
+
+// exit codes (headless / list-ports):
+//   0 = 正常 / expect 命中 / 手動中斷
+//   2 = port 開啟失敗或缺 --port
+//   3 = record 檔開啟失敗
+//   4 = timeout
+//   5 = expect-fail 命中
+static int runCli(int argc, char *argv[], bool listPorts)
+{
+    QCoreApplication app(argc, argv);
+    app.setOrganizationName(QStringLiteral("UARTPro"));
+    app.setApplicationName(QStringLiteral(APP_NAME));
+    app.setApplicationVersion(QStringLiteral(APP_VERSION_STR));
+
+#ifdef Q_OS_WIN
+    initConsoleIO();
+#endif
+
+    QCommandLineParser parser;
+    setupParser(parser);
+    parser.process(app);
+
+    if (listPorts) {
+        QJsonArray arr;
+        const auto ports = QSerialPortInfo::availablePorts();
+        for (const auto &p : ports) {
+            QJsonObject o;
+            o[QStringLiteral("port")] = p.portName();
+            o[QStringLiteral("description")] = p.description();
+            o[QStringLiteral("manufacturer")] = p.manufacturer();
+            arr.append(o);
+        }
+        printf("%s\n", QJsonDocument(arr).toJson(QJsonDocument::Compact).constData());
+        fflush(stdout);
+        return 0;
+    }
+
+    HeadlessOptions opts;
+    opts.port = parser.value(QStringLiteral("port"));
+    if (opts.port.isEmpty()) {
+        fprintf(stderr, "--headless requires --port <COMx>\n");
+        return HeadlessRunner::ExitPortFail;
+    }
+    if (parser.isSet(QStringLiteral("baud")))
+        opts.baud = parser.value(QStringLiteral("baud")).toInt();
+    opts.recordPath = parser.value(QStringLiteral("record"));
+    if (parser.isSet(QStringLiteral("format")))
+        opts.format = parser.value(QStringLiteral("format"));
+    opts.streamStdout = parser.isSet(QStringLiteral("stdout"));
+    opts.expectPattern = parser.value(QStringLiteral("expect"));
+    opts.expectFailPattern = parser.value(QStringLiteral("expect-fail"));
+    if (parser.isSet(QStringLiteral("timeout")))
+        opts.timeoutSec = parser.value(QStringLiteral("timeout")).toInt();
+
+    HeadlessRunner runner(opts);
+#ifdef Q_OS_WIN
+    g_runner = &runner;
+    SetConsoleCtrlHandler(consoleCtrlHandler, TRUE);
+#endif
+
+    const int rc = runner.start();
+    if (rc != 0)
+        return rc;
+    const int ret = app.exec();
+#ifdef Q_OS_WIN
+    g_runner = nullptr;
+#endif
+    return ret;
+}
 
 int main(int argc, char *argv[])
 {
+    // CLI 模式不建 QGuiApplication / QML engine
+    if (hasArg(argc, argv, "--list-ports"))
+        return runCli(argc, argv, true);
+    if (hasArg(argc, argv, "--headless"))
+        return runCli(argc, argv, false);
+
     QGuiApplication app(argc, argv);
     app.setOrganizationName(QStringLiteral("UARTPro"));
     app.setApplicationName(QStringLiteral(APP_NAME));
     app.setApplicationVersion(QStringLiteral(APP_VERSION_STR));
 
     QCommandLineParser parser;
-    parser.setApplicationDescription(QStringLiteral("UART PRO Serial Terminal"));
-    parser.addHelpOption();
-    QCommandLineOption configOption(
-        QStringLiteral("config"),
-        QStringLiteral("Path to configuration JSON file."),
-        QStringLiteral("path"));
-    QCommandLineOption portOption(
-        QStringLiteral("port"),
-        QStringLiteral("Auto-connect to this serial port on startup (e.g. COM3)."),
-        QStringLiteral("portName"));
-    QCommandLineOption baudOption(
-        QStringLiteral("baud"),
-        QStringLiteral("Baud rate to use for auto-connect (e.g. 115200)."),
-        QStringLiteral("baudRate"));
-    QCommandLineOption recordOption(
-        QStringLiteral("record"),
-        QStringLiteral("Auto-start logging to this file path on startup."),
-        QStringLiteral("filePath"));
-    parser.addOption(configOption);
-    parser.addOption(portOption);
-    parser.addOption(baudOption);
-    parser.addOption(recordOption);
+    setupParser(parser);
     parser.process(app);
 
     QQuickStyle::setStyle(QStringLiteral("Basic"));
@@ -104,14 +238,17 @@ int main(int argc, char *argv[])
     QObject::connect(&serialManager, &SerialPortManager::dataReceived,
                      &terminalModel, &TerminalModel::appendRxLine);
 
-    QString configPath = parser.isSet(configOption)
-        ? parser.value(configOption)
+    QString configPath = parser.isSet(QStringLiteral("config"))
+        ? parser.value(QStringLiteral("config"))
         : configManager.defaultConfigPath();
     configManager.loadFromFile(configPath);
 
-    QString cmdLinePort   = parser.isSet(portOption)   ? parser.value(portOption)          : QString();
-    int     cmdLineBaud   = parser.isSet(baudOption)   ? parser.value(baudOption).toInt()  : 0;
-    QString cmdLineRecord = parser.isSet(recordOption) ? parser.value(recordOption)        : QString();
+    QString cmdLinePort   = parser.value(QStringLiteral("port"));
+    int     cmdLineBaud   = parser.isSet(QStringLiteral("baud"))
+                                ? parser.value(QStringLiteral("baud")).toInt() : 0;
+    QString cmdLineRecord = parser.value(QStringLiteral("record"));
+    QString cmdLineFormat = parser.isSet(QStringLiteral("format"))
+                                ? parser.value(QStringLiteral("format")) : QStringLiteral("text");
 
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextProperty(QStringLiteral("serialManager"), &serialManager);
@@ -123,6 +260,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("cmdLinePort"),   cmdLinePort);
     engine.rootContext()->setContextProperty(QStringLiteral("cmdLineBaud"),   cmdLineBaud);
     engine.rootContext()->setContextProperty(QStringLiteral("cmdLineRecord"), cmdLineRecord);
+    engine.rootContext()->setContextProperty(QStringLiteral("cmdLineFormat"), cmdLineFormat);
 
     const QUrl url(QStringLiteral("qrc:/qt/qml/UARTPro/main.qml"));
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreated, &app,
