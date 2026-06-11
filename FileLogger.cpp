@@ -2,6 +2,9 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QVariantMap>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include "version.h"
 
 FileLogger::FileLogger(QObject *parent)
     : QObject(parent)
@@ -34,7 +37,35 @@ QString FileLogger::logFilePath() const
     return m_logFilePath;
 }
 
-bool FileLogger::startLogging(const QString &filePath)
+QString FileLogger::format() const
+{
+    return m_format;
+}
+
+// 在 jsonl 模式下 session 標頭/結尾也是 JSONL 事件列,維持整檔可逐行解析
+void FileLogger::writeSessionEvent(const QString &event)
+{
+    if (m_format == QLatin1String("jsonl")) {
+        QJsonObject obj;
+        obj[QStringLiteral("ts")] = QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
+        obj[QStringLiteral("type")] = QStringLiteral("session");
+        obj[QStringLiteral("event")] = event;
+        obj[QStringLiteral("app")] = QStringLiteral(APP_NAME);
+        obj[QStringLiteral("version")] = QStringLiteral(APP_VERSION_STR);
+        *m_stream << QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact))
+                  << QStringLiteral("\n");
+    } else if (event == QLatin1String("start")) {
+        *m_stream << QStringLiteral("=== UART PRO Log Session — ")
+                  << QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))
+                  << QStringLiteral(" ===\n");
+    } else {
+        *m_stream << QStringLiteral("=== Session ended — ")
+                  << QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))
+                  << QStringLiteral(" ===\n\n");
+    }
+}
+
+bool FileLogger::startLogging(const QString &filePath, const QString &format)
 {
     if (isLogging())
         stopLogging();
@@ -58,11 +89,12 @@ bool FileLogger::startLogging(const QString &filePath)
 
     m_logFilePath = localPath;
     m_logFileSize = m_file->size();
+    m_format = (format == QLatin1String("jsonl")) ? QStringLiteral("jsonl")
+                                                  : QStringLiteral("text");
+    m_seq = 0;
+    emit formatChanged();
 
-    // Write session header
-    *m_stream << QStringLiteral("=== UART PRO Log Session — ")
-              << QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))
-              << QStringLiteral(" ===\n");
+    writeSessionEvent(QStringLiteral("start"));
 
     m_flushTimer->start();
     emit loggingChanged();
@@ -78,10 +110,7 @@ void FileLogger::stopLogging()
 
     m_flushTimer->stop();
 
-    // Write session footer
-    *m_stream << QStringLiteral("=== Session ended — ")
-              << QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"))
-              << QStringLiteral(" ===\n\n");
+    writeSessionEvent(QStringLiteral("stop"));
 
     m_stream->flush();
     delete m_stream;
@@ -113,6 +142,32 @@ void FileLogger::logLine(const QString &line)
         return;
 
     *m_stream << line << QStringLiteral("\n");
+}
+
+void FileLogger::logLines(const QStringList &lines)
+{
+    if (!isLogging() || !m_stream)
+        return;
+
+    for (const QString &line : lines)
+        *m_stream << line << QStringLiteral("\n");
+}
+
+void FileLogger::logStructured(const QString &type, const QString &ascii,
+                               const QString &hex)
+{
+    if (!isLogging() || !m_stream)
+        return;
+
+    QJsonObject obj;
+    obj[QStringLiteral("ts")] = QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
+    obj[QStringLiteral("seq")] = m_seq++;
+    obj[QStringLiteral("type")] = type;
+    obj[QStringLiteral("ascii")] = ascii;
+    if (!hex.isEmpty())
+        obj[QStringLiteral("hex")] = hex;
+    *m_stream << QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact))
+              << QStringLiteral("\n");
 }
 
 QString FileLogger::generateDefaultPath() const
