@@ -9,6 +9,7 @@
 #include "SerialPortManager.h"
 #include "FileLogger.h"
 #include "ConfigManager.h"
+#include "TerminalModel.h"
 #include "version.h"
 
 #ifdef Q_OS_WIN
@@ -97,6 +98,11 @@ int main(int argc, char *argv[])
     SerialPortManager serialManager;
     FileLogger fileLogger;
     ConfigManager configManager;
+    TerminalModel terminalModel;
+
+    // RX 資料 C++ 直連 model(批次 flush),QML 不再逐行處理
+    QObject::connect(&serialManager, &SerialPortManager::dataReceived,
+                     &terminalModel, &TerminalModel::appendRxLine);
 
     QString configPath = parser.isSet(configOption)
         ? parser.value(configOption)
@@ -111,6 +117,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("serialManager"), &serialManager);
     engine.rootContext()->setContextProperty(QStringLiteral("fileLogger"), &fileLogger);
     engine.rootContext()->setContextProperty(QStringLiteral("configManager"), &configManager);
+    engine.rootContext()->setContextProperty(QStringLiteral("terminalModel"), &terminalModel);
     engine.rootContext()->setContextProperty(QStringLiteral("appVersion"), QStringLiteral(APP_VERSION_STR));
     engine.rootContext()->setContextProperty(QStringLiteral("appName"), QStringLiteral(APP_NAME));
     engine.rootContext()->setContextProperty(QStringLiteral("cmdLinePort"),   cmdLinePort);
