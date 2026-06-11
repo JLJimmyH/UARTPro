@@ -1,7 +1,5 @@
 #include "FileLogger.h"
 #include <QDir>
-#include <QFileInfo>
-#include <QVariantMap>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include "version.h"
@@ -191,79 +189,3 @@ void FileLogger::flushAndUpdateSize()
     }
 }
 
-// ── CH-09: Export helpers ─────────────────────────────────────
-
-bool FileLogger::exportPlainText(const QString &filePath, const QVariantList &entries)
-{
-    QString localPath = filePath;
-    if (localPath.startsWith(QStringLiteral("file:///")))
-        localPath = localPath.mid(8);
-    else if (localPath.startsWith(QStringLiteral("file://")))
-        localPath = localPath.mid(7);
-
-    QFile file(localPath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
-        return false;
-
-    QTextStream out(&file);
-    out.setEncoding(QStringConverter::Utf8);
-
-    for (const QVariant &v : entries) {
-        QVariantMap e = v.toMap();
-        out << QStringLiteral("[") << e.value(QStringLiteral("timestamp")).toString()
-            << QStringLiteral("] ")
-            << e.value(QStringLiteral("type")).toString().toUpper()
-            << QStringLiteral("> ")
-            << e.value(QStringLiteral("msgText")).toString();
-
-        QString hex = e.value(QStringLiteral("hexData")).toString();
-        if (!hex.isEmpty())
-            out << QStringLiteral("  |HEX: ") << hex;
-
-        out << QStringLiteral("\n");
-    }
-
-    file.close();
-    return true;
-}
-
-static QString csvEscape(const QString &field)
-{
-    if (field.contains(QLatin1Char(',')) || field.contains(QLatin1Char('"'))
-        || field.contains(QLatin1Char('\n'))) {
-        QString escaped = field;
-        escaped.replace(QLatin1Char('"'), QStringLiteral("\"\""));
-        return QStringLiteral("\"") + escaped + QStringLiteral("\"");
-    }
-    return field;
-}
-
-bool FileLogger::exportCsv(const QString &filePath, const QVariantList &entries)
-{
-    QString localPath = filePath;
-    if (localPath.startsWith(QStringLiteral("file:///")))
-        localPath = localPath.mid(8);
-    else if (localPath.startsWith(QStringLiteral("file://")))
-        localPath = localPath.mid(7);
-
-    QFile file(localPath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
-        return false;
-
-    QTextStream out(&file);
-    out.setEncoding(QStringConverter::Utf8);
-
-    // CSV header
-    out << QStringLiteral("Timestamp,Type,Message,HexData\n");
-
-    for (const QVariant &v : entries) {
-        QVariantMap e = v.toMap();
-        out << csvEscape(e.value(QStringLiteral("timestamp")).toString()) << QLatin1Char(',')
-            << csvEscape(e.value(QStringLiteral("type")).toString().toUpper()) << QLatin1Char(',')
-            << csvEscape(e.value(QStringLiteral("msgText")).toString()) << QLatin1Char(',')
-            << csvEscape(e.value(QStringLiteral("hexData")).toString()) << QLatin1Char('\n');
-    }
-
-    file.close();
-    return true;
-}

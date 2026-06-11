@@ -5,7 +5,6 @@
 #include <QFile>
 #include <QTextStream>
 #include <QTimer>
-#include <QVariantList>
 #include <QStandardPaths>
 #include <QDateTime>
 
@@ -38,10 +37,6 @@ public:
     Q_INVOKABLE void logStructured(const QString &type, const QString &ascii,
                                    const QString &hex);
     Q_INVOKABLE QString generateDefaultPath() const;
-
-    // CH-09: export helpers
-    Q_INVOKABLE bool exportPlainText(const QString &filePath, const QVariantList &entries);
-    Q_INVOKABLE bool exportCsv(const QString &filePath, const QVariantList &entries);
 
 signals:
     void loggingChanged();
