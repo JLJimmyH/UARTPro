@@ -5,6 +5,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QSaveFile>
 
 static const int SAVE_DEBOUNCE_MS = 500;
 static const int CONFIG_VERSION = 2;
@@ -182,8 +183,10 @@ void ConfigManager::loadInternal(const QString &path)
     m_configFilePath = path;
     emit configFilePathChanged();
 
-    m_loading = false;
+    // configLoaded 為 direct connection: QML loadConfigToUI() 的回寫會在 emit 期間
+    // 同步發生,m_loading 必須維持 true 擋住 scheduleSave,否則每次載入都整檔重寫一次
     emit configLoaded();
+    m_loading = false;
 }
 
 void ConfigManager::saveToFile()
@@ -227,10 +230,11 @@ void ConfigManager::saveToFile()
     root[QStringLiteral("filters")]  = writeArray(m_filters,  QStringLiteral("filters"));
 
     QJsonDocument doc(root);
-    QFile file(m_configFilePath);
+    // QSaveFile: 寫 temp 檔 + atomic rename,寫入中斷不會毀掉原設定
+    QSaveFile file(m_configFilePath);
     if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
         file.write(doc.toJson(QJsonDocument::Indented));
-        file.close();
+        file.commit();
     }
 }
 
