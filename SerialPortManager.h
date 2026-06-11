@@ -52,12 +52,20 @@ private slots:
 private:
     void emitLine(const QByteArray &lineData);
     void applyPortSettings();
+    void processRxBuffer(bool flushAll);
+    void scheduleRxBytesNotify();
+
+    // 無換行資料的強制切行上限,避免 binary 資料讓 buffer 無限增長
+    static const int MAX_LINE_BYTES = 4096;
 
     QSerialPort *m_serialPort;
     QStringList m_availablePorts;
     QByteArray m_rxBuffer;
     qint64 m_rxBytes;
     qint64 m_txBytes;
+
+    QTimer *m_idleFlushTimer;    // 收線 idle 後 flush 殘留(無換行結尾的資料才看得到)
+    QTimer *m_rxNotifyTimer;     // rxBytesChanged 節流,高流量時避免每 chunk 重算 UI binding
 
     // Auto-reconnect state
     QTimer *m_reconnectTimer;

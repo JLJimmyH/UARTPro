@@ -21,6 +21,21 @@ SerialPortManager::SerialPortManager(QObject *parent)
     connect(m_reconnectTimer, &QTimer::timeout,
             this, &SerialPortManager::tryReconnect);
 
+    m_idleFlushTimer = new QTimer(this);
+    m_idleFlushTimer->setSingleShot(true);
+    m_idleFlushTimer->setInterval(50);
+    connect(m_idleFlushTimer, &QTimer::timeout, this, [this]() {
+        if (!m_rxBuffer.isEmpty())
+            processRxBuffer(true);
+    });
+
+    m_rxNotifyTimer = new QTimer(this);
+    m_rxNotifyTimer->setSingleShot(true);
+    m_rxNotifyTimer->setInterval(200);
+    connect(m_rxNotifyTimer, &QTimer::timeout, this, [this]() {
+        emit rxBytesChanged();
+    });
+
     refreshPorts();
 }
 
@@ -105,6 +120,7 @@ bool SerialPortManager::connectToPort(const QString &portName, int baudRate,
     applyPortSettings();
 
     if (m_serialPort->open(QIODevice::ReadWrite)) {
+        m_idleFlushTimer->stop();
         m_rxBuffer.clear();
         m_rxBytes = 0;
         m_txBytes = 0;
@@ -129,10 +145,9 @@ void SerialPortManager::disconnectPort()
 
     if (m_serialPort->isOpen()) {
         // Flush any remaining buffered data before closing
-        if (!m_rxBuffer.isEmpty()) {
-            emitLine(m_rxBuffer);
-            m_rxBuffer.clear();
-        }
+        m_idleFlushTimer->stop();
+        if (!m_rxBuffer.isEmpty())
+            processRxBuffer(true);
         m_serialPort->close();
         emit connectedChanged();
     }
@@ -194,44 +209,68 @@ void SerialPortManager::handleReadyRead()
         return;
 
     m_rxBytes += data.size();
-    emit rxBytesChanged();
+    scheduleRxBytesNotify();
 
     m_rxBuffer.append(data);
+    processRxBuffer(false);
 
-    // Split buffer by line endings (\r\n, \n, or \r)
-    while (!m_rxBuffer.isEmpty()) {
-        int idxLF = m_rxBuffer.indexOf('\n');
-        int idxCR = m_rxBuffer.indexOf('\r');
+    // 殘留資料(無換行結尾)在 idle 50ms 後吐出,避免「資料永遠不顯示」
+    if (!m_rxBuffer.isEmpty())
+        m_idleFlushTimer->start();
+    else
+        m_idleFlushTimer->stop();
+}
 
+// Split buffer by line endings (\r\n, \n, or \r) — 單趟掃描,結尾一次 remove
+void SerialPortManager::processRxBuffer(bool flushAll)
+{
+    int pos = 0;
+    const int size = m_rxBuffer.size();
+    while (pos < size) {
         int splitPos = -1;
         int skipLen = 0;
-
-        if (idxCR >= 0 && idxCR + 1 < m_rxBuffer.size() && m_rxBuffer.at(idxCR + 1) == '\n') {
-            // \r\n
-            splitPos = idxCR;
-            skipLen = 2;
-        } else if (idxLF >= 0 && (idxCR < 0 || idxLF < idxCR)) {
-            // \n comes first
-            splitPos = idxLF;
-            skipLen = 1;
-        } else if (idxCR >= 0) {
-            // Lone \r — but if it's the last byte, it might be followed by \n in next chunk
-            if (idxCR == m_rxBuffer.size() - 1) {
-                // Wait for more data to determine if \r\n
+        for (int i = pos; i < size; ++i) {
+            char c = m_rxBuffer.at(i);
+            if (c == '\n') {
+                splitPos = i;
+                skipLen = 1;
                 break;
             }
-            splitPos = idxCR;
-            skipLen = 1;
-        } else {
-            // No line ending found — keep in buffer
+            if (c == '\r') {
+                if (i + 1 < size) {
+                    splitPos = i;
+                    skipLen = (m_rxBuffer.at(i + 1) == '\n') ? 2 : 1;
+                } else if (flushAll) {
+                    splitPos = i;
+                    skipLen = 1;
+                }
+                // 結尾孤立 \r 且非 flushAll: 可能是 \r\n 被拆包,等下一個 chunk
+                break;
+            }
+        }
+        if (splitPos < 0) {
+            if (size - pos >= MAX_LINE_BYTES) {
+                emitLine(m_rxBuffer.mid(pos, MAX_LINE_BYTES));
+                pos += MAX_LINE_BYTES;
+                continue;
+            }
             break;
         }
-
-        QByteArray lineData = m_rxBuffer.left(splitPos);
-        m_rxBuffer.remove(0, splitPos + skipLen);
-
-        emitLine(lineData);
+        emitLine(m_rxBuffer.mid(pos, splitPos - pos));
+        pos = splitPos + skipLen;
     }
+    if (pos > 0)
+        m_rxBuffer.remove(0, pos);
+    if (flushAll && !m_rxBuffer.isEmpty()) {
+        emitLine(m_rxBuffer);
+        m_rxBuffer.clear();
+    }
+}
+
+void SerialPortManager::scheduleRxBytesNotify()
+{
+    if (!m_rxNotifyTimer->isActive())
+        m_rxNotifyTimer->start();
 }
 
 void SerialPortManager::emitLine(const QByteArray &lineData)
