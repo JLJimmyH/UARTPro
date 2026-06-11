@@ -34,17 +34,24 @@ UARTPro — Qt 6 (6.2+) QML + C++ 無邊框 Windows 串列埠終端機。使用 
 - `--port <COMx>` — 啟動時自動連線
 - `--baud <rate>` — 搭配 `--port` 使用
 - `--record <filePath>` — 啟動時自動開始記錄
+- `--format <text|jsonl>` — `--record` 的格式
+- `--list-ports` — 印 JSON port 清單後退出(不開 UI)
+- `--headless` — 無 UI 模式,搭配 `--stdout` / `--expect` / `--expect-fail` / `--timeout`
+
+headless / list-ports 的 exit codes、JSONL schema 與自動化工作流詳見 [AGENT_INTEGRATION.md](AGENT_INTEGRATION.md)。CLI 模式走 `QCoreApplication`(`runCli`),不載 QML。
 
 ## 架構
 
-專案是單一 Qt 執行檔,C++ 端注入三個 context property 到 QML:`serialManager`、`fileLogger`、`configManager`,加上 `appName` / `appVersion` / `cmdLinePort` / `cmdLineBaud` / `cmdLineRecord`。QML 只透過這些物件的 signal/slot/property 互動,不直接碰硬體或檔案系統。
+專案是單一 Qt 執行檔,C++ 端注入四個 context property 到 QML:`serialManager`、`fileLogger`、`configManager`、`terminalModel`,加上 `appName` / `appVersion` / `cmdLinePort` / `cmdLineBaud` / `cmdLineRecord` / `cmdLineFormat`。QML 只透過這些物件的 signal/slot/property 互動,不直接碰硬體或檔案系統。
 
 ### C++ 層 (資料 + OS 整合)
 
-- [SerialPortManager.h](SerialPortManager.h) / [.cpp](SerialPortManager.cpp) — 包裝 `QSerialPort`。負責列舉可用 port、開關連線、收發資料、斷線偵測 + `m_reconnectTimer` 自動重連。收到資料後 buffer 到換行再以 `dataReceived(timestamp, ascii, hex)` signal 丟給 QML。`reconnected()` / `connectionLost()` 是 UI 顯示狀態用的。
-- [FileLogger.h](FileLogger.h) / [.cpp](FileLogger.cpp) — 單一 log 檔的寫入器,含 `QTimer` 批次 flush、檔案大小追蹤,並提供 CH-09 的 `exportPlainText` / `exportCsv`(把 QML buffer 中的 entry 匯出成 txt / csv)。
+- [SerialPortManager.h](SerialPortManager.h) / [.cpp](SerialPortManager.cpp) — 包裝 `QSerialPort`。負責列舉可用 port、開關連線、收發資料、斷線偵測 + `m_reconnectTimer` 自動重連。收到資料後 buffer 到換行再以 `dataReceived(timestamp, ascii, hex)` signal 逐行送出;無換行資料有 4KB 強制切行與 50ms idle flush,`rxBytesChanged` 有 200ms 節流。`reconnected()` / `connectionLost()` 是 UI 顯示狀態用的。
+- [TerminalModel.h](TerminalModel.h) / [.cpp](TerminalModel.cpp) — **終端機資料層本體**(`QAbstractListModel`)。單一儲存所有 entry,model row = 通過 filter 的可見列(`count` vs `totalCount`)。RX 在 main.cpp 直連 `appendRxLine`,16ms 批次 flush 後以 `entriesAppended` 通知 QML(寫 log + autoscroll);修剪去頭並發 `trimmed` 讓 QML 同步選取/搜尋狀態。filter(`setFilters`)、搜尋(`search`)、匯出(`entriesForExport`)都在 C++。改資料流先看這個檔。
+- [FileLogger.h](FileLogger.h) / [.cpp](FileLogger.cpp) — 單一 log 檔的寫入器,含 `QTimer` 批次 flush、檔案大小追蹤。支援 `text` / `jsonl` 兩種格式(`startLogging(path, format)`、`logStructured`、批次 `logLines`),並提供 CH-09 的 `exportPlainText` / `exportCsv`。
+- [HeadlessRunner.h](HeadlessRunner.h) / [.cpp](HeadlessRunner.cpp) — `--headless` 模式:錄製 / `--stdout` JSONL 串流 / `--expect` pattern 等待與 exit code,詳見 [AGENT_INTEGRATION.md](AGENT_INTEGRATION.md)。
 - [ConfigManager.h](ConfigManager.h) / [.cpp](ConfigManager.cpp) — JSON 設定持久化。所有 UI 偏好(uiScale、fontSize、currentTheme、showPrefix、hexDisplayMode、showTimestamp、showLineNumbers、colorNumbers、maxBufferLines)、`keywords`、`filters` 都經此存取。`scheduleSave()` 是 debounced save(QTimer single-shot),避免每個屬性變更就寫硬碟;載入中用 `m_loading` 旗標阻擋回寫。
-- [main.cpp](main.cpp) — 建立 QGuiApplication、解析 CLI、生成三個 manager 並注入 QML、載入 `qrc:/qt/qml/UARTPro/main.qml`。
+- [main.cpp](main.cpp) — 依 argv 分流 CLI(`runCli`,QCoreApplication)或 GUI(QGuiApplication、生成 manager + terminalModel 注入 QML、載入 `qrc:/qt/qml/UARTPro/main.qml`)。RX → terminalModel 的 connect 在這裡。
 
 ### Win32 無邊框視窗處理
 
@@ -59,7 +66,7 @@ UARTPro — Qt 6 (6.2+) QML + C++ 無邊框 Windows 串列埠終端機。使用 
 
 ### QML 層 (UI)
 
-[main.qml](main.qml) 約 3600 行,包含整個應用的 UI、資料處理、過濾/關鍵字高亮、buffer 管理,以及自訂標題列和 resize handle。共用 UI 元件另外抽成:
+[main.qml](main.qml) 約 3500 行,包含整個應用的 UI、關鍵字高亮、選取/複製互動,以及自訂標題列和 resize handle。**資料儲存/filter/搜尋已下放 C++ `terminalModel`**(context property)——QML 端沒有 entry 副本,整批資料用 `terminalModel.allEntries()` / `entriesForExport()`,單列用 `get(row)`;filter 變更走 `scheduleFilterSync()`(Qt.callLater 合併)。keyword 高亮的已編譯 regex 以 `keywordRevision` 為 key 快取在 `_kwCache`。共用 UI 元件另外抽成:
 
 - [CyberButton.qml](CyberButton.qml) / [CyberComboBox.qml](CyberComboBox.qml) / [CyberCheckBox.qml](CyberCheckBox.qml) / [CyberTextField.qml](CyberTextField.qml) — 配合主題的控件樣式
 - [EyeIcon.qml](EyeIcon.qml) / [BroomIcon.qml](BroomIcon.qml) — 內嵌 SVG-like icon
