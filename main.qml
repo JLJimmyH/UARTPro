@@ -157,7 +157,6 @@ Window {
     property int maxBufferLines: 50000
     readonly property var bufferSizeOptions: [10000, 50000, 100000, 500000]
     property string lastClickedRowText: ""
-    property string exportMode: "filtered"
     property bool leftPanelCollapsed: false
     property bool leftPanelAutoCollapsed: false
     property int leftPanelAutoCollapseWidth: 980
@@ -176,7 +175,10 @@ Window {
     onTerminalFontSizeChanged: if (configManager) configManager.terminalFontSize = terminalFontSize
     onUiScaleChanged: if (configManager) configManager.uiScale = uiScale
     onShowPrefixChanged: if (configManager) configManager.showPrefix = showPrefix
-    onHexDisplayModeChanged: if (configManager) configManager.hexDisplayMode = hexDisplayMode
+    onHexDisplayModeChanged: {
+        if (configManager) configManager.hexDisplayMode = hexDisplayMode
+        syncKeywordsToConfig()   // hlColor 比對來源(ascii/hex)跟著切換
+    }
     onShowTimestampChanged: if (configManager) configManager.showTimestamp = showTimestamp
     onShowLineNumbersChanged: if (configManager) configManager.showLineNumbers = showLineNumbers
     onColorNumbersChanged: { keywordRevision++; if (configManager) configManager.colorNumbers = colorNumbers }
@@ -2942,38 +2944,64 @@ Window {
                             }
                         }
 
-                        // ── Search match markers on scrollbar ──
-                        // 單一 Canvas 繪製: 命中數萬筆時不再建立數萬個 item
+                        // ── Scrollbar markers ──
+                        // 單一 Canvas: keyword highlight 依 keyword 色彩標記,搜尋命中(橘)疊上層
                         Item {
-                            id: searchMarkerBar
+                            id: markerBar
                             anchors.right: parent.right
                             anchors.top: parent.top
                             anchors.bottom: parent.bottom
                             anchors.margins: 8
                             width: 6
                             z: 5
-                            visible: root.searchBarVisible && root.searchMatches.length > 0
+                            visible: kwMarkers.length > 0
+                                  || (root.searchBarVisible && root.searchMatches.length > 0)
+
+                            property var kwMarkers: []
+
+                            function refreshKwMarkers() {
+                                kwMarkers = terminalModel.highlightMarkers()
+                                markerCanvas.requestPaint()
+                            }
+
+                            // 高流量節流: 連續 append 期間每 250ms 更新一次
+                            Timer {
+                                id: kwMarkerRefreshTimer
+                                interval: 250
+                                onTriggered: markerBar.refreshKwMarkers()
+                            }
 
                             Canvas {
-                                id: searchMarkerCanvas
+                                id: markerCanvas
                                 anchors.fill: parent
                                 onPaint: {
                                     var ctx = getContext("2d")
                                     ctx.clearRect(0, 0, width, height)
                                     var total = terminalModel.count
                                     if (total <= 0) return
-                                    var matches = root.searchMatches
-                                    var cur = root.searchCurrentIndex >= 0
-                                        ? matches[root.searchCurrentIndex] : -1
                                     var h = Math.max(2, height / total * 1.5)
-                                    ctx.fillStyle = "rgba(255,170,0,0.6)"
-                                    for (var i = 0; i < matches.length; i++) {
-                                        if (matches[i] === cur) continue
-                                        ctx.fillRect(0, (matches[i] / total) * (height - h), width, h)
+
+                                    // keyword highlight 標記(依 keyword 色彩)
+                                    var km = markerBar.kwMarkers
+                                    for (var i = 0; i < km.length; i++) {
+                                        ctx.fillStyle = km[i].color
+                                        ctx.fillRect(0, (km[i].row / total) * (height - h), width, h)
                                     }
-                                    if (cur >= 0) {
-                                        ctx.fillStyle = "#ffaa00"
-                                        ctx.fillRect(0, (cur / total) * (height - h), width, h)
+
+                                    // 搜尋命中疊在上層
+                                    if (root.searchBarVisible) {
+                                        var matches = root.searchMatches
+                                        var cur = root.searchCurrentIndex >= 0
+                                            ? matches[root.searchCurrentIndex] : -1
+                                        ctx.fillStyle = "rgba(255,170,0,0.6)"
+                                        for (var j = 0; j < matches.length; j++) {
+                                            if (matches[j] === cur) continue
+                                            ctx.fillRect(0, (matches[j] / total) * (height - h), width, h)
+                                        }
+                                        if (cur >= 0) {
+                                            ctx.fillStyle = "#ffaa00"
+                                            ctx.fillRect(0, (cur / total) * (height - h), width, h)
+                                        }
                                     }
                                 }
                                 onHeightChanged: requestPaint()
@@ -2981,14 +3009,17 @@ Window {
 
                             Connections {
                                 target: root
-                                function onSearchMatchesChanged()      { searchMarkerCanvas.requestPaint() }
-                                function onSearchCurrentIndexChanged() { searchMarkerCanvas.requestPaint() }
+                                function onSearchMatchesChanged()      { markerCanvas.requestPaint() }
+                                function onSearchCurrentIndexChanged() { markerCanvas.requestPaint() }
                             }
                             Connections {
                                 target: terminalModel
                                 function onCountChanged() {
-                                    if (searchMarkerBar.visible) searchMarkerCanvas.requestPaint()
+                                    // leading-edge 節流: 連續資料流下仍每 250ms 觸發
+                                    if (!kwMarkerRefreshTimer.running)
+                                        kwMarkerRefreshTimer.start()
                                 }
+                                function onHighlightKeywordsChanged() { markerBar.refreshKwMarkers() }
                             }
                         }
 
@@ -3288,25 +3319,6 @@ Window {
                 var ts2 = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
                 addTerminalEntry(ts2, "Failed to start logging", "", "error")
             }
-        }
-    }
-
-    FileDialog {
-        id: exportSaveDialog
-        title: "Export Data"
-        fileMode: FileDialog.SaveFile
-        nameFilters: ["Log files (*.log)", "CSV files (*.csv)", "All files (*)"]
-        onAccepted: {
-            var path = selectedFile.toString()
-            var entries = collectExportEntries()
-            var isCsv = path.toLowerCase().endsWith(".csv")
-            var ok = isCsv ? fileLogger.exportCsv(path, entries)
-                           : fileLogger.exportPlainText(path, entries)
-            var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
-            if (ok)
-                addTerminalEntry(ts, "Exported " + entries.length + " entries to file (" + (isCsv ? "CSV" : "TXT") + ")", "", "system")
-            else
-                addTerminalEntry(ts, "Export failed", "", "error")
         }
     }
 
@@ -4014,6 +4026,7 @@ Window {
             list.push({ text: item.text, color: item.color, enabled: item.enabled, mode: item.mode })
         }
         configManager.setKeywords(list)
+        terminalModel.setHighlightKeywords(list, root.hexDisplayMode)
     }
 
     function loadConfigToUI() {
@@ -4072,10 +4085,6 @@ Window {
             addTerminalEntry(ts, displayData, "", "tx")
             //sendInput.text = ""
         }
-    }
-
-    function collectExportEntries() {
-        return terminalModel.entriesForExport(root.exportMode === "filtered")
     }
 
     function formatBytes(bytes) {

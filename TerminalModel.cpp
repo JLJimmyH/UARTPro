@@ -82,6 +82,7 @@ void TerminalModel::flushPending()
     int visibleAdds = 0;
     for (TerminalEntry &e : batch) {
         e.entryIndex = m_nextIndex++;
+        e.hlColor = computeHlColor(e);
         if (matchesFilter(e))
             ++visibleAdds;
         appendedMaps.append(entryToMap(e));
@@ -236,24 +237,60 @@ void TerminalModel::clear()
     emit totalCountChanged();
 }
 
-QVariantList TerminalModel::entriesForExport(bool filteredOnly) const
+QVariantList TerminalModel::allEntries() const
 {
     QVariantList result;
-    if (filteredOnly) {
-        result.reserve(m_visible.size());
-        for (int idx : m_visible)
-            result.append(entryToMap(m_all.at(idx)));
-    } else {
-        result.reserve(m_all.size());
-        for (const TerminalEntry &e : m_all)
-            result.append(entryToMap(e));
-    }
+    result.reserve(m_all.size());
+    for (const TerminalEntry &e : m_all)
+        result.append(entryToMap(e));
     return result;
 }
 
-QVariantList TerminalModel::allEntries() const
+QString TerminalModel::computeHlColor(const TerminalEntry &e) const
 {
-    return entriesForExport(false);
+    if (m_hlKeywords.isEmpty())
+        return QString();
+    const QString text = ((m_hlHexMode && !e.hexData.isEmpty()) ? e.hexData : e.msgText).toLower();
+    for (const HlKeyword &kw : m_hlKeywords) {
+        if (text.contains(kw.textLower))
+            return kw.color;
+    }
+    return QString();
+}
+
+void TerminalModel::setHighlightKeywords(const QVariantList &keywords, bool hexMode)
+{
+    m_hlKeywords.clear();
+    for (const QVariant &v : keywords) {
+        const QVariantMap kw = v.toMap();
+        if (!kw.value(QStringLiteral("enabled")).toBool())
+            continue;
+        const QString text = kw.value(QStringLiteral("text")).toString().toLower();
+        if (text.isEmpty())
+            continue;
+        m_hlKeywords.append({ text, kw.value(QStringLiteral("color")).toString() });
+    }
+    m_hlHexMode = hexMode;
+
+    for (TerminalEntry &e : m_all)
+        e.hlColor = computeHlColor(e);
+
+    emit highlightKeywordsChanged();
+}
+
+QVariantList TerminalModel::highlightMarkers() const
+{
+    QVariantList result;
+    for (int row = 0; row < m_visible.size(); ++row) {
+        const TerminalEntry &e = m_all.at(m_visible.at(row));
+        if (!e.hlColor.isEmpty()) {
+            result.append(QVariantMap{
+                { QStringLiteral("row"),   row },
+                { QStringLiteral("color"), e.hlColor },
+            });
+        }
+    }
+    return result;
 }
 
 QVariantList TerminalModel::entryIndicesInRange(int loRow, int hiRow) const

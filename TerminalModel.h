@@ -17,6 +17,7 @@ struct TerminalEntry {
     QString hexData;
     QString type;        // "rx" | "tx" | "system" | "error"
     int     entryIndex;  // 全域遞增,clear 後歸零
+    QString hlColor;     // 命中的第一個 keyword 色彩(scroll bar 標記用),空=未命中
 };
 
 class TerminalModel : public QAbstractListModel
@@ -54,9 +55,12 @@ public:
     Q_INVOKABLE void clear();
     Q_INVOKABLE void setFilters(const QVariantList &filters);
     Q_INVOKABLE QVariantList search(const QString &query, bool isRegex, bool hexMode) const;
-    Q_INVOKABLE QVariantList entriesForExport(bool filteredOnly) const;
     Q_INVOKABLE QVariantList allEntries() const;
     Q_INVOKABLE QVariantList entryIndicesInRange(int loRow, int hiRow) const;
+    // keyword highlight 同步(append 時即計算 hlColor,keyword 變更時全量重算)
+    Q_INVOKABLE void setHighlightKeywords(const QVariantList &keywords, bool hexMode);
+    // 回傳可見列中有命中 keyword 的 [{row, color}],給 scroll bar 標記
+    Q_INVOKABLE QVariantList highlightMarkers() const;
 
 public slots:
     void appendRxLine(const QString &timestamp, const QString &asciiData, const QString &hexData);
@@ -69,12 +73,19 @@ signals:
     // 每批 flush 的所有 entry(含被 filter 掉的) — QML 用來寫 log + autoscroll
     void entriesAppended(const QVariantList &entries);
     void trimmed(int removedCount, int removedMaxEntryIndex);
+    void highlightKeywordsChanged();
 
 private slots:
     void flushPending();
 
 private:
+    struct HlKeyword {
+        QString textLower;
+        QString color;
+    };
+
     bool matchesFilter(const TerminalEntry &e) const;
+    QString computeHlColor(const TerminalEntry &e) const;
     void trimIfNeeded();
     static QVariantMap entryToMap(const TerminalEntry &e);
 
@@ -83,6 +94,8 @@ private:
     QList<TerminalEntry> m_pending;
     QStringList m_includes;        // 已 lowercase 的啟用 include filter
     QStringList m_excludes;
+    QList<HlKeyword> m_hlKeywords; // 已啟用的 keyword(lowercase),順序 = 優先序
+    bool m_hlHexMode = false;
     QTimer m_flushTimer;
     int m_maxLines = 50000;
     int m_nextIndex = 0;
