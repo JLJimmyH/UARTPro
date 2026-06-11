@@ -155,7 +155,6 @@ Window {
     property bool showLineNumbers: false
     property bool colorNumbers: true
     property int maxBufferLines: 50000
-    property int entryIndexOffset: 0
     readonly property var bufferSizeOptions: [10000, 50000, 100000, 500000]
     property string lastClickedRowText: ""
     property string exportMode: "filtered"
@@ -181,10 +180,13 @@ Window {
     onShowTimestampChanged: if (configManager) configManager.showTimestamp = showTimestamp
     onShowLineNumbersChanged: if (configManager) configManager.showLineNumbers = showLineNumbers
     onColorNumbersChanged: { keywordRevision++; if (configManager) configManager.colorNumbers = colorNumbers }
-    onMaxBufferLinesChanged: if (configManager) configManager.maxBufferLines = maxBufferLines
+    onMaxBufferLinesChanged: {
+        if (configManager) configManager.maxBufferLines = maxBufferLines
+        terminalModel.maxLines = maxBufferLines
+    }
 
     // ── Terminal & Keyword State ─────────────────────────────────
-    property var terminalEntries: []
+    // 資料本體在 C++ terminalModel(context property),QML 只留選取/檢視狀態
     property var selectedSet: ({})
     property int selectionVersion: 0
     property int lastClickedRow: -1
@@ -224,7 +226,7 @@ Window {
 
     // ── Data Models ────────────────────────────────────────────────
     ListModel { id: keywordModel;  onCountChanged: { root.keywordRevision++; syncKeywordsToConfig() } }
-    ListModel { id: filterModel;   onCountChanged: { root.filterRevision++; rebuildFilteredModel(); syncFiltersToConfig() } }
+    ListModel { id: filterModel;   onCountChanged: { root.filterRevision++; scheduleFilterSync() } }
 
     // Hidden TextEdit for clipboard access
     TextEdit { id: clipHelper; visible: false }
@@ -1436,8 +1438,7 @@ Window {
                                                         filterModel.setProperty(i, "enabled", !allOn)
                                                 }
                                                 root.filterRevision++
-                                                rebuildFilteredModel()
-                                                syncFiltersToConfig()
+                                                scheduleFilterSync()
                                             }
                                         }
                                     }
@@ -1471,8 +1472,7 @@ Window {
                                                 onClicked: {
                                                     filterModel.setProperty(index, "enabled", !model.enabled)
                                                     root.filterRevision++
-                                                    rebuildFilteredModel()
-                                                    syncFiltersToConfig()
+                                                    scheduleFilterSync()
                                                 }
                                             }
 
@@ -1511,8 +1511,7 @@ Window {
                                                             onClicked: {
                                                                 filterModel.setProperty(index, "enabled", !model.enabled)
                                                                 root.filterRevision++
-                                                                rebuildFilteredModel()
-                                                                syncFiltersToConfig()
+                                                                scheduleFilterSync()
                                                             }
                                                         }
                                                     }
@@ -1530,7 +1529,7 @@ Window {
                                                             anchors.margins: -4
                                                             hoverEnabled: true
                                                             cursorShape: Qt.PointingHandCursor
-                                                            onClicked: { filterModel.remove(index); syncFiltersToConfig() }
+                                                            onClicked: filterModel.remove(index)
                                                         }
                                                     }
                                                 }
@@ -1583,8 +1582,7 @@ Window {
                                                         filterModel.setProperty(i, "enabled", !allOn)
                                                 }
                                                 root.filterRevision++
-                                                rebuildFilteredModel()
-                                                syncFiltersToConfig()
+                                                scheduleFilterSync()
                                             }
                                         }
                                     }
@@ -1618,8 +1616,7 @@ Window {
                                                 onClicked: {
                                                     filterModel.setProperty(index, "enabled", !model.enabled)
                                                     root.filterRevision++
-                                                    rebuildFilteredModel()
-                                                    syncFiltersToConfig()
+                                                    scheduleFilterSync()
                                                 }
                                             }
 
@@ -1658,8 +1655,7 @@ Window {
                                                             onClicked: {
                                                                 filterModel.setProperty(index, "enabled", !model.enabled)
                                                                 root.filterRevision++
-                                                                rebuildFilteredModel()
-                                                                syncFiltersToConfig()
+                                                                scheduleFilterSync()
                                                             }
                                                         }
                                                     }
@@ -1677,7 +1673,7 @@ Window {
                                                             anchors.margins: -4
                                                             hoverEnabled: true
                                                             cursorShape: Qt.PointingHandCursor
-                                                            onClicked: { filterModel.remove(index); syncFiltersToConfig() }
+                                                            onClicked: filterModel.remove(index)
                                                         }
                                                     }
                                                 }
@@ -2221,8 +2217,6 @@ Window {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
 
-                        ListModel { id: terminalModel }
-
                         ListView {
                             id: terminalView
                             anchors.fill: parent
@@ -2675,14 +2669,13 @@ Window {
                                     // Multi-row: deactivate single-row TextEdit, use visual overlay
                                     root.activeEditRow = -1
                                     root._selStart = -1
-                                    // Update selectedSet to cover the range
+                                    // Update selectedSet to cover the range (一次跨界呼叫取代逐列 get)
                                     var lo = Math.min(startRow, endRow)
                                     var hi = Math.max(startRow, endRow)
+                                    var idxList = terminalModel.entryIndicesInRange(lo, hi)
                                     var s = {}
-                                    for (var i = lo; i <= hi; i++) {
-                                        var e = terminalModel.get(i)
-                                        if (e) s[e.entryIndex] = true
-                                    }
+                                    for (var i = 0; i < idxList.length; i++)
+                                        s[idxList[i]] = true
                                     root.selectedSet = s
                                     root.selectionVersion++
                                 }
@@ -3023,11 +3016,11 @@ Window {
 
                 // Buffer usage
                 Text {
-                    text: "BUF: " + root.terminalEntries.length + "/" + root.maxBufferLines
+                    text: "BUF: " + terminalModel.totalCount + "/" + root.maxBufferLines
                     font.family: root.fontMono
                     font.pixelSize: 10
                     font.letterSpacing: 1
-                    color: (root.terminalEntries.length / root.maxBufferLines > 0.9)
+                    color: (terminalModel.totalCount / root.maxBufferLines > 0.9)
                            ? "#ffaa00" : root.colorMutedFg
                 }
 
@@ -3284,6 +3277,36 @@ Window {
     }
 
     Connections {
+        target: terminalModel
+
+        // 每批 flush(~16ms)呼叫一次: 批次寫 log + 單次 autoscroll
+        function onEntriesAppended(entries) {
+            if (fileLogger.logging) {
+                for (var i = 0; i < entries.length; i++)
+                    fileLogger.logLine(formatEntryForLog(entries[i]))
+            }
+            if (root.autoScroll)
+                terminalView.positionViewAtEnd()
+        }
+
+        // C++ 修剪後同步 QML 端選取/搜尋狀態
+        function onTrimmed(removedCount, removedMaxEntryIndex) {
+            var newSel = {}
+            var keys = Object.keys(root.selectedSet)
+            for (var k = 0; k < keys.length; k++) {
+                if (parseInt(keys[k]) > removedMaxEntryIndex)
+                    newSel[keys[k]] = true
+            }
+            root.selectedSet = newSel
+            root.selectionVersion++
+            if (root.searchMatches.length > 0) {
+                root.searchMatches = []
+                root.searchCurrentIndex = -1
+            }
+        }
+    }
+
+    Connections {
         target: serialManager
 
         function onConnectedChanged() {
@@ -3308,9 +3331,7 @@ Window {
             addTerminalEntry(ts, "Reconnected successfully", "", "system")
         }
 
-        function onDataReceived(timestamp, asciiData, hexData) {
-            addTerminalEntry(timestamp, asciiData, hexData, "rx")
-        }
+        // RX 資料已在 C++ 直連 terminalModel,QML 不再逐行處理
 
         function onErrorOccurred(error) {
             var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
@@ -3349,120 +3370,28 @@ Window {
     function logExistingEntriesToFile() {
         if (!fileLogger.logging)
             return
-        for (var i = 0; i < root.terminalEntries.length; i++)
-            fileLogger.logLine(formatEntryForLog(root.terminalEntries[i]))
+        var entries = terminalModel.allEntries()
+        for (var i = 0; i < entries.length; i++)
+            fileLogger.logLine(formatEntryForLog(entries[i]))
     }
 
     function addTerminalEntry(timestamp, data, hexData, type) {
-        var entry = {
-            timestamp: timestamp,
-            msgText: data,
-            hexData: hexData || "",
-            type: type,
-            entryIndex: root.entryIndexOffset + root.terminalEntries.length
-        }
-
-        // Log to file if active
-        if (fileLogger.logging)
-            fileLogger.logLine(formatEntryForLog(entry))
-
-        var entries = root.terminalEntries
-        entries.push(entry)
-
-        // Buffer limit: trim oldest 10% when exceeding max
-        if (entries.length > root.maxBufferLines) {
-            var removeCount = Math.floor(root.maxBufferLines * 0.1)
-            var removedMaxIndex = entries[removeCount - 1].entryIndex
-
-            entries.splice(0, removeCount)
-            root.entryIndexOffset += removeCount
-
-            // Sync terminalModel: remove entries at front with entryIndex <= threshold
-            var modelRemoveCount = 0
-            for (var m = 0; m < terminalModel.count; m++) {
-                if (terminalModel.get(m).entryIndex <= removedMaxIndex)
-                    modelRemoveCount++
-                else
-                    break
-            }
-            if (modelRemoveCount > 0)
-                terminalModel.remove(0, modelRemoveCount)
-
-            // Sync selectedSet
-            var newSel = {}
-            var keys = Object.keys(root.selectedSet)
-            for (var k = 0; k < keys.length; k++) {
-                if (parseInt(keys[k]) > removedMaxIndex)
-                    newSel[keys[k]] = true
-            }
-            root.selectedSet = newSel
-            root.selectionVersion++
-
-            // Invalidate search matches
-            if (root.searchMatches.length > 0) {
-                root.searchMatches = []
-                root.searchCurrentIndex = -1
-            }
-        }
-
-        root.terminalEntries = entries
-
-        if (passesFilter(entry)) {
-            terminalModel.append(entry)
-            if (root.autoScroll)
-                terminalView.positionViewAtEnd()
-        }
+        terminalModel.appendEntry(timestamp, data, hexData || "", type)
     }
 
-    function passesFilter(entry) {
-        // system and error messages always pass
-        if (entry.type === "system" || entry.type === "error")
-            return true
+    // filter 同步: Qt.callLater 合併連續變更(config 載入 N 筆只重建一次),
+    // 比對本體在 C++ terminalModel.setFilters
+    function scheduleFilterSync() { Qt.callLater(syncFiltersNow) }
 
-        var text = entry.msgText.toLowerCase()
-
-        // Collect enabled include/exclude filters
-        var includes = []
-        var excludes = []
+    function syncFiltersNow() {
+        var list = []
         for (var i = 0; i < filterModel.count; i++) {
-            var f = filterModel.get(i)
-            if (!f.enabled) continue
-            if (f.filterType === "include")
-                includes.push(f.text.toLowerCase())
-            else
-                excludes.push(f.text.toLowerCase())
+            var item = filterModel.get(i)
+            list.push({ text: item.text, filterType: item.filterType, enabled: item.enabled })
         }
-
-        // Include: if any include filter exists, text must match at least one (OR)
-        if (includes.length > 0) {
-            var includePass = false
-            for (var ii = 0; ii < includes.length; ii++) {
-                if (text.indexOf(includes[ii]) >= 0) {
-                    includePass = true
-                    break
-                }
-            }
-            if (!includePass) return false
-        }
-
-        // Exclude: text must not contain any exclude filter (AND NOT)
-        for (var j = 0; j < excludes.length; j++) {
-            if (text.indexOf(excludes[j]) >= 0)
-                return false
-        }
-
-        return true
-    }
-
-    function rebuildFilteredModel() {
-        terminalModel.clear()
+        terminalModel.setFilters(list)
+        configManager.setFilters(list)
         clearSelection()
-        for (var i = 0; i < root.terminalEntries.length; i++) {
-            var entry = root.terminalEntries[i]
-            if (passesFilter(entry)) {
-                terminalModel.append(entry)
-            }
-        }
         if (root.searchBarVisible && root.searchQuery !== "")
             performSearch()
         if (root.autoScroll)
@@ -3478,26 +3407,7 @@ Window {
             return
         }
 
-        var matches = []
-        var re
-        try {
-            if (root.searchRegex)
-                re = new RegExp(q, "i")
-            else
-                re = new RegExp(escapeRegex(q), "i")
-        } catch (e) {
-            root.searchMatches = []
-            root.searchCurrentIndex = -1
-            return
-        }
-
-        for (var i = 0; i < terminalModel.count; i++) {
-            var entry = terminalModel.get(i)
-            var text = (root.hexDisplayMode && entry.hexData !== "") ? entry.hexData : entry.msgText
-            if (re.test(String(text))) {
-                matches.push(i)
-            }
-        }
+        var matches = terminalModel.search(q, root.searchRegex, root.hexDisplayMode)
 
         root.searchMatches = matches
         if (matches.length > 0) {
@@ -3708,8 +3618,6 @@ Window {
 
     function clearTerminal() {
         terminalModel.clear()
-        root.terminalEntries = []
-        root.entryIndexOffset = 0
         clearSelection()
     }
 
@@ -3830,8 +3738,9 @@ Window {
 
     function copySelectedEntries() {
         var lines = []
-        for (var i = 0; i < root.terminalEntries.length; i++) {
-            var entry = root.terminalEntries[i]
+        var entries = terminalModel.allEntries()
+        for (var i = 0; i < entries.length; i++) {
+            var entry = entries[i]
             if (entry && root.selectedSet.hasOwnProperty(entry.entryIndex)) {
                 lines.push(buildEntryText(entry))
             }
@@ -3918,7 +3827,7 @@ Window {
         text = text.trim()
         if (text === "") return
         filterModel.append({ text: text, filterType: filterType, enabled: true })
-        syncFiltersToConfig()
+        // onCountChanged 會觸發 scheduleFilterSync
     }
 
     // ── Config sync helpers ────────────────────────────────────
@@ -3929,15 +3838,6 @@ Window {
             list.push({ text: item.text, color: item.color, enabled: item.enabled, mode: item.mode })
         }
         configManager.setKeywords(list)
-    }
-
-    function syncFiltersToConfig() {
-        var list = []
-        for (var i = 0; i < filterModel.count; i++) {
-            var item = filterModel.get(i)
-            list.push({ text: item.text, filterType: item.filterType, enabled: item.enabled })
-        }
-        configManager.setFilters(list)
     }
 
     function loadConfigToUI() {
@@ -3999,21 +3899,7 @@ Window {
     }
 
     function collectExportEntries() {
-        var result = []
-        if (root.exportMode === "filtered") {
-            for (var i = 0; i < terminalModel.count; i++) {
-                var item = terminalModel.get(i)
-                result.push({ timestamp: item.timestamp, type: item.type,
-                              msgText: item.msgText, hexData: item.hexData })
-            }
-        } else {
-            for (var j = 0; j < root.terminalEntries.length; j++) {
-                var e = root.terminalEntries[j]
-                result.push({ timestamp: e.timestamp, type: e.type,
-                              msgText: e.msgText, hexData: e.hexData })
-            }
-        }
-        return result
+        return terminalModel.entriesForExport(root.exportMode === "filtered")
     }
 
     function formatBytes(bytes) {
@@ -4084,6 +3970,7 @@ Window {
     // Boot sequence on startup
     Component.onCompleted: {
         loadConfigToUI()
+        terminalModel.maxLines = root.maxBufferLines
         adjustLeftPanelForWindowWidth()
         var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
         addTerminalEntry(ts, appName + " v" + appVersion + " // SERIAL TERMINAL INTERFACE", "", "system")
