@@ -109,7 +109,15 @@
 
 ---
 
-## Stage 8 — 啟動空白 window 消除 / splash(S15,使用者回報)⏸ 留到最後
+## Stage 8 — 啟動空白 window 消除(S15,使用者回報)✅ 使用者測試 ok(DWM cloak,空白消失)
+**採用方案 C(DWM cloaking)** — 比 splash 乾淨,零假延遲:
+- main.cpp #ifdef Q_OS_WIN:`#include <dwmapi.h>` + `#pragma comment(lib,"dwmapi.lib")`
+- 套好 frameless 後 `DwmSetWindowAttribute(hwnd, DWMWA_CLOAK, TRUE)` → setVisible(true) 仍 render 但對合成器隱形
+- `frameSwapped`(Qt::SingleShotConnection,render thread→main queued)首幀畫好 uncloak;1s QTimer fallback 防永久隱形
+- 保留 Stage 2.5 的 visible:false(擋原生白框)+ cloak(擋空白 surface),互補
+**測試**:見下方
+---
+原方案備註(未採用):A=splash 動畫(加假延遲);B=延後 setVisible(仍可能閃)
 **現象**:白框已解(Stage 2.5),但 setVisible 後**第一幀 QML 內容尚未 render**,window surface 暫顯空白(白)約一瞬再轉主題深色。
 **根因**:`window->setVisible(true)` 在 scene graph 首幀 composite 前,OS 顯示未初始化 surface。
 **方案選項**(到此階段再定):

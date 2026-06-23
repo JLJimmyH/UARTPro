@@ -4,6 +4,7 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QTimer>
 #include <QCommandLineParser>
 #include <QAbstractNativeEventFilter>
 #include <QSerialPortInfo>
@@ -21,6 +22,8 @@
 
 #ifdef Q_OS_WIN
 #include <windows.h>
+#include <dwmapi.h>
+#pragma comment(lib, "dwmapi.lib")
 
 class WindowsFramelessEventFilter : public QAbstractNativeEventFilter
 {
@@ -284,6 +287,20 @@ int main(int argc, char *argv[])
         enableSnapForFramelessWindow(hwnd);
         framelessEventFilter = std::make_unique<WindowsFramelessEventFilter>(hwnd);
         app.installNativeEventFilter(framelessEventFilter.get());
+
+        // 啟動白窗修正:先用 DWM cloak 讓視窗對桌面合成器隱形(setVisible 後仍會 render),
+        // 待第一幀畫好(frameSwapped)再 uncloak → 直接現出完整畫面,無未繪製的空白 surface。
+        BOOL cloakOn = TRUE;
+        DwmSetWindowAttribute(hwnd, DWMWA_CLOAK, &cloakOn, sizeof(cloakOn));
+        auto uncloak = [hwnd]() {
+            BOOL cloakOff = FALSE;
+            DwmSetWindowAttribute(hwnd, DWMWA_CLOAK, &cloakOff, sizeof(cloakOff));
+        };
+        // frameSwapped 由 render thread 發出,連到 main thread 物件 → queued 執行,Win32 呼叫安全
+        QObject::connect(window, &QQuickWindow::frameSwapped, window, uncloak,
+                         Qt::SingleShotConnection);
+        // 保險:萬一 frameSwapped 未觸發,1 秒後強制現身,避免視窗永遠隱形
+        QTimer::singleShot(1000, window, uncloak);
     }
 #endif
 
