@@ -16,6 +16,7 @@ class ConfigManager : public QObject
     Q_PROPERTY(bool showPrefix READ showPrefix WRITE setShowPrefix NOTIFY showPrefixChanged)
     Q_PROPERTY(bool hexDisplayMode READ hexDisplayMode WRITE setHexDisplayMode NOTIFY hexDisplayModeChanged)
     Q_PROPERTY(bool showTimestamp READ showTimestamp WRITE setShowTimestamp NOTIFY showTimestampChanged)
+    Q_PROPERTY(bool showDate READ showDate WRITE setShowDate NOTIFY showDateChanged)
     Q_PROPERTY(bool showLineNumbers READ showLineNumbers WRITE setShowLineNumbers NOTIFY showLineNumbersChanged)
     Q_PROPERTY(bool colorNumbers READ colorNumbers WRITE setColorNumbers NOTIFY colorNumbersChanged)
     Q_PROPERTY(int maxBufferLines READ maxBufferLines WRITE setMaxBufferLines NOTIFY maxBufferLinesChanged)
@@ -31,6 +32,7 @@ public:
     bool showPrefix() const;
     bool hexDisplayMode() const;
     bool showTimestamp() const;
+    bool showDate() const;
     bool showLineNumbers() const;
     bool colorNumbers() const;
     int maxBufferLines() const;
@@ -42,6 +44,7 @@ public:
     void setShowPrefix(bool value);
     void setHexDisplayMode(bool value);
     void setShowTimestamp(bool value);
+    void setShowDate(bool value);
     void setShowLineNumbers(bool value);
     void setColorNumbers(bool value);
     void setMaxBufferLines(int value);
@@ -63,6 +66,7 @@ signals:
     void showPrefixChanged();
     void hexDisplayModeChanged();
     void showTimestampChanged();
+    void showDateChanged();
     void showLineNumbersChanged();
     void colorNumbersChanged();
     void maxBufferLinesChanged();
@@ -83,6 +87,7 @@ private:
     bool m_showPrefix = true;
     bool m_hexDisplayMode = false;
     bool m_showTimestamp = true;
+    bool m_showDate = false;
     bool m_showLineNumbers = false;
     bool m_colorNumbers = true;
     int m_maxBufferLines = 50000;

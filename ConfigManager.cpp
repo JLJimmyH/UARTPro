@@ -104,6 +104,8 @@ void ConfigManager::loadInternal(const QString &path)
         setHexDisplayMode(root.value(QStringLiteral("hexDisplayMode")).toBool(false));
     if (root.contains(QStringLiteral("showTimestamp")))
         setShowTimestamp(root.value(QStringLiteral("showTimestamp")).toBool(true));
+    if (root.contains(QStringLiteral("showDate")))
+        setShowDate(root.value(QStringLiteral("showDate")).toBool(false));
     if (root.contains(QStringLiteral("showLineNumbers")))
         setShowLineNumbers(root.value(QStringLiteral("showLineNumbers")).toBool(false));
     if (root.contains(QStringLiteral("colorNumbers")))
@@ -202,6 +204,7 @@ void ConfigManager::saveToFile()
     root[QStringLiteral("showPrefix")] = m_showPrefix;
     root[QStringLiteral("hexDisplayMode")] = m_hexDisplayMode;
     root[QStringLiteral("showTimestamp")] = m_showTimestamp;
+    root[QStringLiteral("showDate")] = m_showDate;
     root[QStringLiteral("showLineNumbers")] = m_showLineNumbers;
     root[QStringLiteral("colorNumbers")] = m_colorNumbers;
     root[QStringLiteral("maxBufferLines")] = m_maxBufferLines;
@@ -252,6 +255,7 @@ int ConfigManager::currentTheme() const { return m_currentTheme; }
 bool ConfigManager::showPrefix() const { return m_showPrefix; }
 bool ConfigManager::hexDisplayMode() const { return m_hexDisplayMode; }
 bool ConfigManager::showTimestamp() const { return m_showTimestamp; }
+bool ConfigManager::showDate() const { return m_showDate; }
 bool ConfigManager::showLineNumbers() const { return m_showLineNumbers; }
 bool ConfigManager::colorNumbers() const { return m_colorNumbers; }
 int ConfigManager::maxBufferLines() const { return m_maxBufferLines; }
@@ -307,6 +311,14 @@ void ConfigManager::setShowTimestamp(bool value)
     if (m_showTimestamp == value) return;
     m_showTimestamp = value;
     emit showTimestampChanged();
+    scheduleSave();
+}
+
+void ConfigManager::setShowDate(bool value)
+{
+    if (m_showDate == value) return;
+    m_showDate = value;
+    emit showDateChanged();
     scheduleSave();
 }
 

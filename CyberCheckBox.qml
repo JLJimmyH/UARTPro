@@ -4,6 +4,9 @@ import QtQuick.Controls
 CheckBox {
     id: control
 
+    // disabled 時整體變灰反白(無效視覺)
+    opacity: control.enabled ? 1.0 : 0.35
+
     property color accentColor: "#00ff88"
     property color bgColor: "#0a0a0f"
     property color borderMutedColor: "#3a3a4a"

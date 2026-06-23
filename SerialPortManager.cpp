@@ -278,7 +278,8 @@ void SerialPortManager::emitLine(const QByteArray &lineData)
     if (lineData.isEmpty())
         return;
 
-    QString timestamp = QDateTime::currentDateTime().toString(QStringLiteral("HH:mm:ss.zzz"));
+    // 存完整日期+時間: 多天燒機跨午夜時畫面/ log 才能辨日(畫面依 showDate 決定是否顯示日期段)
+    QString timestamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"));
 
     // Build ASCII representation, replace non-printable chars with '.'
     QString asciiStr;

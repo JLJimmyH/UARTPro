@@ -148,6 +148,7 @@ Window {
     property bool hexDisplayMode: false
     property bool autoScroll: true
     property bool showTimestamp: true
+    property bool showDate: false
     property bool showPrefix: true
     property bool hexSendMode: false
     property int terminalFontSize: 12
@@ -155,7 +156,7 @@ Window {
     property bool showLineNumbers: false
     property bool colorNumbers: true
     property int maxBufferLines: 50000
-    readonly property var bufferSizeOptions: [10000, 50000, 100000, 500000]
+    readonly property var lineLimitOptions: [10000, 50000, 100000, 500000]
     property string lastClickedRowText: ""
     property bool leftPanelCollapsed: false
     property bool leftPanelAutoCollapsed: false
@@ -180,6 +181,7 @@ Window {
         syncKeywordsToConfig()   // hlColor 比對來源(ascii/hex)跟著切換
     }
     onShowTimestampChanged: if (configManager) configManager.showTimestamp = showTimestamp
+    onShowDateChanged: if (configManager) configManager.showDate = showDate
     onShowLineNumbersChanged: if (configManager) configManager.showLineNumbers = showLineNumbers
     onColorNumbersChanged: { keywordRevision++; if (configManager) configManager.colorNumbers = colorNumbers }
     onMaxBufferLinesChanged: {
@@ -249,7 +251,7 @@ Window {
         target: configManager
         function onConfigLoaded() {
             loadConfigToUI()
-            var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+            var ts = root.tsNow()
             addTerminalEntry(ts, "Config loaded: " + configManager.configFilePath, "", "system")
         }
     }
@@ -1071,15 +1073,46 @@ Window {
                 }
 
                 Flickable {
+                    id: leftFlick
                     anchors.fill: parent
-                    anchors.margins: 16
+                    // 右邊只留 4px 讓 scroll bar 貼近 panel 右緣(內容仍靠 leftCol 維持 16px 內縮)
+                    anchors.topMargin: 16
+                    anchors.leftMargin: 16
+                    anchors.bottomMargin: 16
+                    anchors.rightMargin: 4
                     contentHeight: leftCol.height
                     clip: true
                     boundsBehavior: Flickable.StopAtBounds
 
+                    // 內容溢出時顯示 scroll bar,提示還可往下滑看更多功能
+                    ScrollBar.vertical: ScrollBar {
+                        id: leftScrollBar
+                        policy: ScrollBar.AsNeeded
+                        visible: size < 1.0
+                        hoverEnabled: true
+                        anchors.right: parent ? parent.right : undefined
+                        width: 12
+                        contentItem: Rectangle {
+                            implicitWidth: 12
+                            color: root.colorAccent
+                            opacity: leftScrollBar.pressed ? 0.9
+                                   : (leftScrollBar.hovered ? 0.7 : 0.4)
+                            radius: 3
+                            Behavior on opacity { NumberAnimation { duration: 120 } }
+                        }
+                        background: Rectangle {
+                            implicitWidth: 12
+                            color: leftScrollBar.hovered
+                                ? Qt.rgba(root.colorAccent.r, root.colorAccent.g, root.colorAccent.b, 0.08)
+                                : "transparent"
+                            Behavior on color { ColorAnimation { duration: 120 } }
+                        }
+                    }
+
                     ColumnLayout {
                         id: leftCol
-                        width: parent.width
+                        // 固定預留 scroll bar 寬度,避免控件被蓋住,亦斷開 width<->height binding loop
+                        width: leftFlick.width - 12
                         spacing: 10
 
                         // Section: CONNECTION
@@ -1818,6 +1851,15 @@ Window {
                             onCheckedChanged: root.showTimestamp = checked
                         }
                         CyberCheckBox {
+                            text: "DATE"
+                            checked: root.showDate
+                            // TIMESTAMP 關時自動變灰失效(CyberCheckBox disabled 透明度),但保留勾選值不取消
+                            enabled: root.showTimestamp
+                            accentColor: root.colorAccentTertiary
+                            bgColor: root.colorBg; borderMutedColor: root.colorBorder; mutedFgColor: root.colorMutedFg
+                            onCheckedChanged: root.showDate = checked
+                        }
+                        CyberCheckBox {
                             text: "PREFIX"
                             checked: root.showPrefix
                             accentColor: root.colorAccentTertiary
@@ -1839,22 +1881,22 @@ Window {
                             onCheckedChanged: root.colorNumbers = checked
                         }
 
-                        // Buffer Size
+                        // Terminal Line Limit
                         Text {
-                            text: "BUFFER SIZE"
+                            text: "TERMINAL LINE LIMIT"
                             font.family: root.fontMono; font.pixelSize: 10
                             font.letterSpacing: 2; color: root.colorMutedFg
                         }
                         CyberComboBox {
-                            id: bufferSizeCombo
+                            id: lineLimitCombo
                             Layout.fillWidth: true
-                            model: root.bufferSizeOptions
+                            model: root.lineLimitOptions
                             currentIndex: 1
                             accentColor: root.colorAccentTertiary
                             cardColor: root.colorCard; borderColor: root.colorBorder
                             fgColor: root.colorFg; bgColor: root.colorBg
                             mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
-                            onCurrentIndexChanged: root.maxBufferLines = root.bufferSizeOptions[currentIndex]
+                            onCurrentIndexChanged: root.maxBufferLines = root.lineLimitOptions[currentIndex]
                         }
 
                         Item { height: 8 }
@@ -2491,7 +2533,7 @@ Window {
                                     // Timestamp
                                     Text {
                                         visible: root.showTimestamp
-                                        text: entryDelegate.timestamp || ""
+                                        text: root.showDate ? (entryDelegate.timestamp || "") : root.tsTimeOnly(entryDelegate.timestamp || "")
                                         font.family: root.fontMono
                                         font.pixelSize: root.terminalFontSize
                                         color: root.colorMutedFg
@@ -2578,7 +2620,7 @@ Window {
                                         }
                                         Text {
                                             visible: root.showTimestamp
-                                            text: entryDelegate.timestamp || ""
+                                            text: root.showDate ? (entryDelegate.timestamp || "") : root.tsTimeOnly(entryDelegate.timestamp || "")
                                             font.family: root.fontMono
                                             font.pixelSize: root.terminalFontSize
                                             color: root.colorBg
@@ -3172,9 +3214,9 @@ Window {
 
                 Rectangle { width: 1; Layout.fillHeight: true; Layout.topMargin: 6; Layout.bottomMargin: 6; color: root.colorBorder }
 
-                // Buffer usage
+                // Line usage
                 Text {
-                    text: "BUF: " + terminalModel.totalCount + "/" + root.maxBufferLines
+                    text: "LINES: " + terminalModel.totalCount + "/" + root.maxBufferLines
                     font.family: root.fontMono
                     font.pixelSize: 10
                     font.letterSpacing: 1
@@ -3319,10 +3361,10 @@ Window {
         onAccepted: {
             if (fileLogger.startLogging(selectedFile.toString())) {
                 logExistingEntriesToFile()
-                var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+                var ts = root.tsNow()
                 addTerminalEntry(ts, "Logging started — " + fileLogger.logFilePath, "", "system")
             } else {
-                var ts2 = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+                var ts2 = root.tsNow()
                 addTerminalEntry(ts2, "Failed to start logging", "", "error")
             }
         }
@@ -3453,7 +3495,7 @@ Window {
         target: serialManager
 
         function onConnectedChanged() {
-            var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+            var ts = root.tsNow()
             if (serialManager.connected) {
                 uptimeTimer.seconds = 0
                 addTerminalEntry(ts, "Connection established — "
@@ -3465,19 +3507,19 @@ Window {
         }
 
         function onConnectionLost() {
-            var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+            var ts = root.tsNow()
             addTerminalEntry(ts, "Device disconnected — auto-reconnecting...", "", "error")
         }
 
         function onReconnected() {
-            var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+            var ts = root.tsNow()
             addTerminalEntry(ts, "Reconnected successfully", "", "system")
         }
 
         // RX 資料已在 C++ 直連 terminalModel,QML 不再逐行處理
 
         function onErrorOccurred(error) {
-            var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+            var ts = root.tsNow()
             if (!serialManager.reconnecting)
                 addTerminalEntry(ts, error, "", "error")
         }
@@ -3498,10 +3540,21 @@ Window {
         }
     }
 
+    // 統一的 entry timestamp 格式: 含日期(yyyy-MM-dd HH:mm:ss.zzz)
+    // 畫面依 showDate 決定是否顯示日期段; log 永遠寫完整
+    function tsNow() { return Qt.formatDateTime(new Date(), "yyyy-MM-dd HH:mm:ss.zzz") }
+    // 從完整 timestamp 取出時間段(去掉日期前綴); 無空白時原樣回傳
+    function tsTimeOnly(ts) {
+        var s = String(ts)
+        var i = s.indexOf(" ")
+        return i >= 0 ? s.substring(i + 1) : s
+    }
+
     function formatEntryForLog(entry) {
         var textData = (root.hexDisplayMode && entry.hexData !== "")
             ? entry.hexData : entry.msgText
         var line = ""
+        // entry.timestamp 已含日期(yyyy-MM-dd HH:mm:ss.zzz); log 永遠寫完整,供多天燒機跨午夜辨日
         if (root.showTimestamp)
             line += "[" + (entry.timestamp || "") + "] "
         if (root.showPrefix)
@@ -3766,7 +3819,7 @@ Window {
     function toggleLogging() {
         if (fileLogger.logging) {
             fileLogger.stopLogging()
-            var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+            var ts = root.tsNow()
             addTerminalEntry(ts, "Logging stopped — " + fileLogger.logFilePath, "", "system")
         } else {
             logSaveDialog.selectedFile = "file:///" + fileLogger.generateDefaultPath()
@@ -3791,7 +3844,7 @@ Window {
             )
             if (!ok) {
                 addTerminalEntry(
-                    Qt.formatDateTime(new Date(), "HH:mm:ss.zzz"),
+                    root.tsNow(),
                     "Failed to open port", "", "error"
                 )
             }
@@ -3958,7 +4011,7 @@ Window {
         clipHelper.text = ""
 
         // Show feedback in terminal
-        var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+        var ts = root.tsNow()
         addTerminalEntry(ts, "Copied to clipboard (" + text.split("\n").length + " lines)", "", "system")
     }
 
@@ -3968,7 +4021,7 @@ Window {
         clipHelper.copy()
         clipHelper.text = ""
 
-        var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+        var ts = root.tsNow()
         addTerminalEntry(ts, "Copied to clipboard (" + text.length + " chars)", "", "system")
     }
 
@@ -4042,13 +4095,14 @@ Window {
         root.showPrefix = configManager.showPrefix
         root.hexDisplayMode = configManager.hexDisplayMode
         root.showTimestamp = configManager.showTimestamp
+        root.showDate = configManager.showDate
         root.showLineNumbers = configManager.showLineNumbers
         root.colorNumbers = configManager.colorNumbers
         root.maxBufferLines = configManager.maxBufferLines
 
-        // Sync bufferSizeCombo index
-        var bufIdx = root.bufferSizeOptions.indexOf(root.maxBufferLines)
-        if (bufIdx >= 0) bufferSizeCombo.currentIndex = bufIdx
+        // Sync lineLimitCombo index
+        var bufIdx = root.lineLimitOptions.indexOf(root.maxBufferLines)
+        if (bufIdx >= 0) lineLimitCombo.currentIndex = bufIdx
 
         // Keywords
         keywordModel.clear()
@@ -4086,7 +4140,7 @@ Window {
         var toSend = data + endings[lineEndingCombo.currentIndex]
 
         if (serialManager.sendData(toSend, root.hexSendMode)) {
-            var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+            var ts = root.tsNow()
             var displayData = root.hexSendMode ? data : data
             addTerminalEntry(ts, displayData, "", "tx")
             //sendInput.text = ""
@@ -4114,7 +4168,7 @@ Window {
         interval: 200
         repeat: false
         onTriggered: {
-            var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+            var ts = root.tsNow()
 
             // --baud: override baud combo before connecting
             if (cmdLineBaud > 0) {
@@ -4163,7 +4217,7 @@ Window {
         loadConfigToUI()
         terminalModel.maxLines = root.maxBufferLines
         adjustLeftPanelForWindowWidth()
-        var ts = Qt.formatDateTime(new Date(), "HH:mm:ss.zzz")
+        var ts = root.tsNow()
         addTerminalEntry(ts, appName + " v" + appVersion + " // SERIAL TERMINAL INTERFACE", "", "system")
         addTerminalEntry(ts, "System initialized. Ready for connection.", "", "system")
         addTerminalEntry(ts, "Config: " + configManager.configFilePath, "", "system")
