@@ -20,6 +20,7 @@ class ConfigManager : public QObject
     Q_PROPERTY(bool showLineNumbers READ showLineNumbers WRITE setShowLineNumbers NOTIFY showLineNumbersChanged)
     Q_PROPERTY(bool colorNumbers READ colorNumbers WRITE setColorNumbers NOTIFY colorNumbersChanged)
     Q_PROPERTY(int maxBufferLines READ maxBufferLines WRITE setMaxBufferLines NOTIFY maxBufferLinesChanged)
+    Q_PROPERTY(QString lastLogDir READ lastLogDir WRITE setLastLogDir NOTIFY lastLogDirChanged)
     Q_PROPERTY(QString configFilePath READ configFilePath NOTIFY configFilePathChanged)
 
 public:
@@ -36,6 +37,7 @@ public:
     bool showLineNumbers() const;
     bool colorNumbers() const;
     int maxBufferLines() const;
+    QString lastLogDir() const;
     QString configFilePath() const;
 
     void setUiScale(qreal value);
@@ -48,6 +50,7 @@ public:
     void setShowLineNumbers(bool value);
     void setColorNumbers(bool value);
     void setMaxBufferLines(int value);
+    void setLastLogDir(const QString &value);
 
     Q_INVOKABLE QVariantList keywords() const;
     Q_INVOKABLE void setKeywords(const QVariantList &list);
@@ -70,6 +73,7 @@ signals:
     void showLineNumbersChanged();
     void colorNumbersChanged();
     void maxBufferLinesChanged();
+    void lastLogDirChanged();
     void configFilePathChanged();
     void configLoaded();
 
@@ -91,6 +95,7 @@ private:
     bool m_showLineNumbers = false;
     bool m_colorNumbers = true;
     int m_maxBufferLines = 50000;
+    QString m_lastLogDir;
     QString m_configFilePath;
 
     QVariantList m_keywords;

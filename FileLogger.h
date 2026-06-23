@@ -34,8 +34,9 @@ public:
                               const QString &message, const QString &hexData);
     // JSONL 一筆: {"ts":ISO8601含毫秒,"seq":N,"type":...,"ascii":...,"hex":...}
     // schema 固定且與 UI 顯示偏好解耦,供 agent/LLM 穩定解析
+    // ts 為擷取行的本地時戳字串(yyyy-MM-dd HH:mm:ss.zzz);留空則用寫入當下時間
     Q_INVOKABLE void logStructured(const QString &type, const QString &ascii,
-                                   const QString &hex);
+                                   const QString &hex, const QString &ts = QString());
     Q_INVOKABLE QString generateDefaultPath() const;
 
 signals:

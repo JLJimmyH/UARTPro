@@ -9,7 +9,8 @@ Window {
     height: 800
     minimumWidth: 320
     minimumHeight: 56
-    visible: true
+    // 以隱藏建立,待 C++ 套好無邊框樣式後由 main.cpp setVisible(true),避免啟動白框閃爍
+    visible: false
     title: appName + " // SERIAL TERMINAL v" + appVersion
     color: colorBg
     flags: Qt.FramelessWindowHint | Qt.Window | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint
@@ -37,7 +38,7 @@ Window {
     function closeWindow()    { root.close() }
 
     function adjustLeftPanelForWindowWidth() {
-        if (root.width <= root.leftPanelAutoCollapseWidth) {
+        if (root.width / root.uiScale <= root.leftPanelAutoCollapseWidth) {
             if (!root.leftPanelCollapsed) {
                 root.leftPanelCollapsed = true
                 root.leftPanelAutoCollapsed = true
@@ -165,16 +166,19 @@ Window {
     readonly property int leftPanelMinWidth: 200
     readonly property int leftPanelMaxWidth: 600
     property int ultraNarrowWidth: 860
-    readonly property bool ultraNarrowMode: root.width <= root.ultraNarrowWidth
+    readonly property bool ultraNarrowMode: root.width / root.uiScale <= root.ultraNarrowWidth
     property int titleOnlyHeightThreshold: 64
-    readonly property bool titleOnlyMode: root.height <= root.titleOnlyHeightThreshold
+    readonly property bool titleOnlyMode: root.height / root.uiScale <= root.titleOnlyHeightThreshold
 
     onWidthChanged: adjustLeftPanelForWindowWidth()
 
     // ── Config sync handlers ─────────────────────────────────────
     onCurrentThemeChanged: if (configManager) configManager.currentTheme = currentTheme
     onTerminalFontSizeChanged: if (configManager) configManager.terminalFontSize = terminalFontSize
-    onUiScaleChanged: if (configManager) configManager.uiScale = uiScale
+    onUiScaleChanged: {
+        if (configManager) configManager.uiScale = uiScale
+        adjustLeftPanelForWindowWidth()
+    }
     onShowPrefixChanged: if (configManager) configManager.showPrefix = showPrefix
     onHexDisplayModeChanged: {
         if (configManager) configManager.hexDisplayMode = hexDisplayMode
@@ -1202,7 +1206,7 @@ Window {
                             accentColor: root.colorAccent
                             cardColor: root.colorCard; borderColor: root.colorBorder
                             fgColor: root.colorFg; bgColor: root.colorBg
-                            mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
+                            mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted; uiScale: root.uiScale
                         }
 
                         // BAUD RATE
@@ -1219,7 +1223,7 @@ Window {
                             accentColor: root.colorAccent
                             cardColor: root.colorCard; borderColor: root.colorBorder
                             fgColor: root.colorFg; bgColor: root.colorBg
-                            mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
+                            mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted; uiScale: root.uiScale
                         }
 
                         // Hidden combos — keep IDs for compatibility
@@ -1267,7 +1271,7 @@ Window {
                                 accentColor: filterTypeCombo.currentIndex === 0 ? "#ffaa00" : root.colorAccent
                                 cardColor: root.colorCard; borderColor: root.colorBorder
                                 fgColor: root.colorFg; bgColor: root.colorBg
-                                mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
+                                mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted; uiScale: root.uiScale
                                 font.pixelSize: 11
                             }
 
@@ -1280,7 +1284,7 @@ Window {
                                 accentColor: filterSubTypeCombo.currentIndex === 0 ? root.colorAccent : root.colorDestructive
                                 cardColor: root.colorCard; borderColor: root.colorBorder
                                 fgColor: root.colorFg; bgColor: root.colorBg
-                                mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
+                                mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted; uiScale: root.uiScale
                                 font.pixelSize: 11
                             }
                         }
@@ -1398,7 +1402,7 @@ Window {
                                                         ToolTip.text: "Change color"
                                                         onClicked: {
                                                             colorPickerPopup.targetIndex = index
-                                                            var pos = parent.mapToItem(root.contentItem, 0, 0)
+                                                            var pos = parent.mapToItem(colorPickerPopup.parent, 0, 0)
                                                             colorPickerPopup.x = pos.x
                                                             colorPickerPopup.y = pos.y + 20
                                                             colorPickerPopup.open()
@@ -1895,7 +1899,7 @@ Window {
                             accentColor: root.colorAccentTertiary
                             cardColor: root.colorCard; borderColor: root.colorBorder
                             fgColor: root.colorFg; bgColor: root.colorBg
-                            mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
+                            mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted; uiScale: root.uiScale
                             onCurrentIndexChanged: root.maxBufferLines = root.lineLimitOptions[currentIndex]
                         }
 
@@ -1921,12 +1925,47 @@ Window {
                             onClicked: clearTerminal()
                         }
 
-                        CyberButton {
+                        RowLayout {
                             Layout.fillWidth: true
-                            text: fileLogger.logging ? "STOP LOGGING" : "LOG TO FILE"
-                            accentColor: fileLogger.logging ? root.colorDestructive : root.colorAccent
-                            bgColor: root.colorBg; borderMutedColor: root.colorBorder
-                            onClicked: toggleLogging()
+                            spacing: 6
+
+                            CyberButton {
+                                id: logToFileBtn
+                                Layout.fillWidth: true
+                                text: fileLogger.logging ? "STOP LOGGING" : "LOG TO FILE"
+                                accentColor: fileLogger.logging ? root.colorDestructive : root.colorAccent
+                                bgColor: root.colorBg; borderMutedColor: root.colorBorder
+                                onClicked: toggleLogging()
+                            }
+
+                            // 開啟目前儲存位置(資料夾)
+                            Rectangle {
+                                Layout.preferredWidth: logToFileBtn.height
+                                Layout.preferredHeight: logToFileBtn.height
+                                color: openLocMa.containsMouse ? root.colorMuted : "transparent"
+                                border.color: openLocMa.containsMouse ? root.colorAccent : root.colorBorder
+                                border.width: openLocMa.containsMouse ? 2 : 1
+                                Behavior on border.color { ColorAnimation { duration: 150 } }
+
+                                FolderIcon {
+                                    anchors.centerIn: parent
+                                    width: 16; height: 16
+                                    iconColor: root.colorAccent
+                                    opacity: openLocMa.containsMouse ? 1.0 : 0.7
+                                    Behavior on opacity { NumberAnimation { duration: 100 } }
+                                }
+
+                                MouseArea {
+                                    id: openLocMa
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    ToolTip.visible: containsMouse
+                                    ToolTip.delay: 500
+                                    ToolTip.text: "開啟儲存位置"
+                                    onClicked: openLogLocation()
+                                }
+                            }
                         }
 
                         // 目前 LOG 檔名顯示(僅在記錄中顯示)
@@ -3134,7 +3173,7 @@ Window {
                                 accentColor: root.colorMutedFg
                                 cardColor: root.colorCard; borderColor: root.colorBorder
                                 fgColor: root.colorFg; bgColor: root.colorBg
-                                mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted
+                                mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted; uiScale: root.uiScale
                                 font.pixelSize: 10
                             }
 
@@ -3360,6 +3399,8 @@ Window {
         nameFilters: ["Log files (*.log)", "Text files (*.txt)", "All files (*)"]
         onAccepted: {
             if (fileLogger.startLogging(selectedFile.toString())) {
+                // 記住使用者選的目錄(存 config),供下次對話框與「開啟儲存位置」共用
+                configManager.lastLogDir = root.pathDir(root.urlToLocalPath(selectedFile))
                 logExistingEntriesToFile()
                 var ts = root.tsNow()
                 addTerminalEntry(ts, "Logging started — " + fileLogger.logFilePath, "", "system")
@@ -3566,8 +3607,9 @@ Window {
     // jsonl: 逐筆結構化(schema 固定); text: 依 UI 偏好格式化後批次寫入
     function logEntriesToFile(entries) {
         if (fileLogger.format === "jsonl") {
+            // 帶擷取行時間(entry.timestamp),否則 C++ 端會以 flush 時間蓋章 → 跨午夜燒機失準
             for (var i = 0; i < entries.length; i++)
-                fileLogger.logStructured(entries[i].type, entries[i].msgText, entries[i].hexData)
+                fileLogger.logStructured(entries[i].type, entries[i].msgText, entries[i].hexData, entries[i].timestamp)
         } else {
             var lines = []
             for (var j = 0; j < entries.length; j++)
@@ -3822,9 +3864,45 @@ Window {
             var ts = root.tsNow()
             addTerminalEntry(ts, "Logging stopped — " + fileLogger.logFilePath, "", "system")
         } else {
-            logSaveDialog.selectedFile = "file:///" + fileLogger.generateDefaultPath()
+            // 儲存目錄優先用 config 記住的上次目錄,否則預設(Documents);檔名沿用 generateDefaultPath 的時間戳。
+            // currentFolder 由我們自己的 config 管理,故 openLocation 按鈕能讀到同一目錄。
+            var dir = currentLogDir()
+            logSaveDialog.currentFolder = "file:///" + dir
+            logSaveDialog.selectedFile = "file:///" + dir + "/" + pathBase(fileLogger.generateDefaultPath())
             logSaveDialog.open()
         }
+    }
+
+    // 取路徑的目錄段(吃 / 與 \\)
+    function pathDir(p) {
+        p = String(p).replace(/\\/g, "/")
+        var i = p.lastIndexOf("/")
+        return i >= 0 ? p.substring(0, i) : p
+    }
+    // 取路徑的檔名段
+    function pathBase(p) {
+        p = String(p).replace(/\\/g, "/")
+        var i = p.lastIndexOf("/")
+        return i >= 0 ? p.substring(i + 1) : p
+    }
+    // FileDialog url(file:///C:/...) → 本地路徑(C:/...)
+    function urlToLocalPath(u) {
+        return decodeURIComponent(String(u).replace(/^file:\/\/\/?/, ""))
+    }
+    // LOG TO FILE 預設儲存目錄(Documents,從 generateDefaultPath 取目錄段)
+    function logDefaultDir() { return pathDir(fileLogger.generateDefaultPath()) }
+    // 目前要用的儲存目錄:優先 config 記住的上次目錄,否則預設
+    function currentLogDir() {
+        var d = configManager.lastLogDir
+        return (d && d.length > 0) ? d : logDefaultDir()
+    }
+
+    // 開啟目前 log 儲存位置:記錄中用實際檔案目錄,否則用 LOG TO FILE 同一個目錄(config 記住的或預設)
+    function openLogLocation() {
+        var dir = fileLogger.logging ? pathDir(fileLogger.logFilePath)
+                                     : currentLogDir()
+        if (dir.length > 0)
+            Qt.openUrlExternally("file:///" + dir)
     }
 
     function toggleConnection() {
@@ -3987,8 +4065,9 @@ Window {
     // ── Copy ────────────────────────────────────────────────────
     function buildEntryText(entry) {
         var line = ""
+        // 複製對齊畫面: showDate 沒勾時只取時間段(畫面 delegate 同樣 gating,見 2540/2627)
         if (root.showTimestamp)
-            line += entry.timestamp + " "
+            line += (root.showDate ? entry.timestamp : root.tsTimeOnly(entry.timestamp)) + " "
 
         if (root.showPrefix) {
             switch (entry.type) {
@@ -4227,6 +4306,7 @@ Window {
         } else {
             addTerminalEntry(ts, "Select a port and click CONNECT to begin.", "", "system")
         }
-        serialManager.refreshPorts()
+        // ports 已於 SerialPortManager ctor 列舉、combo 直接 bind availablePorts;
+        // 此處不再重掃(省一次同步 SetupAPI 掃描),需要時按 refresh 鈕。
     }
 }

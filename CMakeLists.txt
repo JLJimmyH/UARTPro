@@ -35,6 +35,7 @@ qt_add_qml_module(${PROJECT_NAME}
         CyberTextField.qml
         EyeIcon.qml
         BroomIcon.qml
+        FolderIcon.qml
 )
 
 set_target_properties(${PROJECT_NAME} PROPERTIES

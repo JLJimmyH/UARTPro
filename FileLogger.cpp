@@ -152,13 +152,23 @@ void FileLogger::logLines(const QStringList &lines)
 }
 
 void FileLogger::logStructured(const QString &type, const QString &ascii,
-                               const QString &hex)
+                               const QString &hex, const QString &ts)
 {
     if (!isLogging() || !m_stream)
         return;
 
+    // 優先用擷取行時間(本地格式轉 ISODateWithMs);留空或解析失敗才用寫入當下時間
+    QString isoTs;
+    if (!ts.isEmpty()) {
+        QDateTime dt = QDateTime::fromString(ts, QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"));
+        isoTs = dt.isValid() ? dt.toString(Qt::ISODateWithMs)
+                             : QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
+    } else {
+        isoTs = QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
+    }
+
     QJsonObject obj;
-    obj[QStringLiteral("ts")] = QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
+    obj[QStringLiteral("ts")] = isoTs;
     obj[QStringLiteral("seq")] = m_seq++;
     obj[QStringLiteral("type")] = type;
     obj[QStringLiteral("ascii")] = ascii;

@@ -11,6 +11,9 @@ ComboBox {
     property color bgColor: "#0a0a0f"
     property color mutedFgColor: "#6b7280"
     property color mutedColor: "#1c1c2e"
+    // Popup reparents to the (unscaled) window overlay, so its body must be
+    // scaled manually to match the contentRoot scale transform.
+    property real uiScale: 1.0
 
     font.family: "Consolas"
     font.pixelSize: 12
@@ -61,17 +64,17 @@ ComboBox {
     }
 
     delegate: ItemDelegate {
-        width: control.width
-        height: 32
+        width: control.width * control.uiScale
+        height: 32 * control.uiScale
         highlighted: control.highlightedIndex === index
 
         contentItem: Text {
             text: modelData !== undefined ? modelData : model[control.textRole]
             font.family: "Consolas"
-            font.pixelSize: 12
+            font.pixelSize: 12 * control.uiScale
             color: parent.highlighted ? control.bgColor : control.fgColor
             verticalAlignment: Text.AlignVCenter
-            leftPadding: 10
+            leftPadding: 10 * control.uiScale
             elide: Text.ElideRight
         }
         background: Rectangle {
@@ -81,11 +84,11 @@ ComboBox {
 
     popup: Popup {
         y: control.height
-        width: control.width
+        width: control.width * control.uiScale
         padding: 1
 
         contentItem: ListView {
-            implicitHeight: Math.min(contentHeight, 200)
+            implicitHeight: Math.min(contentHeight, 200 * control.uiScale)
             model: control.delegateModel
             clip: true
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }

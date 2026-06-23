@@ -65,7 +65,9 @@ void ConfigManager::loadInternal(const QString &path)
     if (!file.exists()) {
         m_configFilePath = path;
         emit configFilePathChanged();
-        saveToFile();
+        // first-run 不在啟動路徑同步寫檔(原子 rename + flush 會卡冷啟動);
+        // 改 debounced scheduleSave,等事件迴圈起來後才落盤。
+        scheduleSave();
         emit configLoaded();
         return;
     }
@@ -112,6 +114,8 @@ void ConfigManager::loadInternal(const QString &path)
         setColorNumbers(root.value(QStringLiteral("colorNumbers")).toBool(true));
     if (root.contains(QStringLiteral("maxBufferLines")))
         setMaxBufferLines(root.value(QStringLiteral("maxBufferLines")).toInt(50000));
+    if (root.contains(QStringLiteral("lastLogDir")))
+        setLastLogDir(root.value(QStringLiteral("lastLogDir")).toString());
 
     auto readArray = [](const QJsonArray &arr, const QString &arrayType) -> QVariantList {
         QVariantList result;
@@ -208,6 +212,7 @@ void ConfigManager::saveToFile()
     root[QStringLiteral("showLineNumbers")] = m_showLineNumbers;
     root[QStringLiteral("colorNumbers")] = m_colorNumbers;
     root[QStringLiteral("maxBufferLines")] = m_maxBufferLines;
+    root[QStringLiteral("lastLogDir")] = m_lastLogDir;
 
     auto writeArray = [](const QVariantList &list, const QString &arrayType) -> QJsonArray {
         QJsonArray arr;
@@ -259,6 +264,7 @@ bool ConfigManager::showDate() const { return m_showDate; }
 bool ConfigManager::showLineNumbers() const { return m_showLineNumbers; }
 bool ConfigManager::colorNumbers() const { return m_colorNumbers; }
 int ConfigManager::maxBufferLines() const { return m_maxBufferLines; }
+QString ConfigManager::lastLogDir() const { return m_lastLogDir; }
 QString ConfigManager::configFilePath() const { return m_configFilePath; }
 
 // ── Setters ─────────────────────────────────────────
@@ -269,6 +275,14 @@ void ConfigManager::setUiScale(qreal value)
     if (qFuzzyCompare(m_uiScale, value)) return;
     m_uiScale = value;
     emit uiScaleChanged();
+    scheduleSave();
+}
+
+void ConfigManager::setLastLogDir(const QString &value)
+{
+    if (m_lastLogDir == value) return;
+    m_lastLogDir = value;
+    emit lastLogDirChanged();
     scheduleSave();
 }
 

@@ -218,6 +218,9 @@ int main(int argc, char *argv[])
     if (hasArg(argc, argv, "--headless"))
         return runCli(argc, argv, false);
 
+    // 明確指定 High-DPI 取整策略(不依賴 Qt 版本預設),與 QML uiScale 幾何縮放關係見 QMLDesign.md
+    QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
+
     QGuiApplication app(argc, argv);
     app.setOrganizationName(QStringLiteral("UARTPro"));
     app.setApplicationName(QStringLiteral(APP_NAME));
@@ -270,18 +273,24 @@ int main(int argc, char *argv[])
         }, Qt::QueuedConnection);
     engine.load(url);
 
+    QQuickWindow *window = engine.rootObjects().isEmpty()
+        ? nullptr
+        : qobject_cast<QQuickWindow *>(engine.rootObjects().first());
+
 #ifdef Q_OS_WIN
     std::unique_ptr<WindowsFramelessEventFilter> framelessEventFilter;
-    if (!engine.rootObjects().isEmpty()) {
-        auto *window = qobject_cast<QQuickWindow *>(engine.rootObjects().first());
-        if (window) {
-            HWND hwnd = reinterpret_cast<HWND>(window->winId());
-            enableSnapForFramelessWindow(hwnd);
-            framelessEventFilter = std::make_unique<WindowsFramelessEventFilter>(hwnd);
-            app.installNativeEventFilter(framelessEventFilter.get());
-        }
+    if (window) {
+        HWND hwnd = reinterpret_cast<HWND>(window->winId());
+        enableSnapForFramelessWindow(hwnd);
+        framelessEventFilter = std::make_unique<WindowsFramelessEventFilter>(hwnd);
+        app.installNativeEventFilter(framelessEventFilter.get());
     }
 #endif
+
+    // 視窗以 visible:false 建立,待無邊框樣式(去 WS_CAPTION + WM_NCCALCSIZE 攔截)套好才顯示,
+    // 避免啟動時先閃一瞬原生白框再轉成無邊框介面。
+    if (window)
+        window->setVisible(true);
 
     return app.exec();
 }
