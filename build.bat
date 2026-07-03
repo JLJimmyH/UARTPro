@@ -20,19 +20,19 @@ if not defined VS_PATH (
 
 call "%VS_PATH%\VC\Auxiliary\Build\vcvars64.bat"
 
-:: --- Clean and build ---
-rd /s /q build 2>nul
-mkdir build
-cd build
+:: --- Build (incremental by default; "build.bat clean" forces full rebuild) ---
+if /i "%~1"=="clean" rd /s /q build 2>nul
 
-cmake .. -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="D:/Qt/6.7.3/msvc2022_64"
+if not exist "build\CMakeCache.txt" (
+    cmake -S . -B build -G "Ninja" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="D:/Qt/6.7.3/msvc2022_64"
+)
 if %errorlevel% neq 0 (
     echo CMake config failed!
     pause
     exit /b 1
 )
 
-cmake --build . --config Release
+cmake --build build --config Release
 if %errorlevel% neq 0 (
     echo Build failed!
     pause
@@ -42,5 +42,6 @@ if %errorlevel% neq 0 (
 echo Build succeeded!
 
 echo Copying runtime DLLs from bin...
-robocopy "..\bin" "." /E /XF "UARTPro.exe" "uartpro_config.json" >nul
+robocopy "bin" "build" /E /XF "UARTPro.exe" "uartpro_config.json" >nul
 echo Done.
+exit /b 0

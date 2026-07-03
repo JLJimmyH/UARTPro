@@ -10,7 +10,7 @@ UARTPro — Qt 6 (6.2+) QML + C++ 無邊框 Windows 串列埠終端機。使用 
 
 建構腳本全部放在專案根目錄,設計為不需開啟 IDE 即可操作:
 
-- `build.bat` — 呼叫 `vswhere` 找 VS → `vcvars64.bat` → 清 `build/` → `cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="D:/Qt/6.7.3/msvc2022_64"` → `cmake --build`。建完後用 `robocopy` 把 `bin/` 下舊的 runtime DLL 同步回 `build/`(排除 exe 與 json),讓 `build/UARTPro.exe` 可以直接跑。
+- `build.bat` — 呼叫 `vswhere` 找 VS → `vcvars64.bat` → 增量建構(`build/CMakeCache.txt` 存在時跳過 configure,直接 `cmake --build build`);`build.bat clean` 強制全清重建。configure 參數:`-G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="D:/Qt/6.7.3/msvc2022_64"`。建完後用 `robocopy` 把 `bin/` 下舊的 runtime DLL 同步回 `build/`(排除 exe 與 json),讓 `build/UARTPro.exe` 可以直接跑。
 - `deploy.bat` — 從 `CMakeCache.txt` 自動解析 Qt 路徑與 MSVC Redist 路徑 → 清空 `bin/` → 複製 exe → `windeployqt6.exe --qmldir .` → 複製 `vcruntime140*.dll` / `msvcp140*.dll` / `concrt140.dll`。最終的可發佈產出在 `bin/`。
 - `copy.bat` — 只把 `build/UARTPro.exe` 複製到 `bin/`,用於改完 code 後快速更新。
 
@@ -22,7 +22,7 @@ UARTPro — Qt 6 (6.2+) QML + C++ 無邊框 Windows 串列埠終端機。使用 
 執行:                  bin\UARTPro.exe
 ```
 
-注意 `build.bat` 會 `rd /s /q build`,每次都是乾淨重建;若要增量建構請直接用 Qt Creator 或手動 `cmake --build build`。
+`build.bat` 預設為增量建構;懷疑 cache 壞掉或換 Qt 版本時用 `build.bat clean` 全清重建。
 
 本專案無測試 target、無 lint 設定。
 

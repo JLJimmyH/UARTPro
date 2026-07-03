@@ -1265,7 +1265,7 @@ Window {
 
                             CyberComboBox {
                                 id: filterTypeCombo
-                                Layout.preferredWidth: 108
+                                Layout.preferredWidth: 132
                                 model: ["Highlight", "Filter"]
                                 currentIndex: 0
                                 accentColor: filterTypeCombo.currentIndex === 0 ? "#ffaa00" : root.colorAccent

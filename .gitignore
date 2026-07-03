@@ -31,7 +31,6 @@ ui_*.h
 qrc_*.cpp
 Thumbs.db
 *.res
-*.rc
 /.qmake.cache
 /.qmake.stash
 
@@ -80,6 +79,5 @@ CMakeLists.txt.user*
 .rcc/
 .uic/
 /build*/
-nul
 bin/
 .claude/settings.local.json

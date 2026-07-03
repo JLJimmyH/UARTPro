@@ -15,4 +15,8 @@ if not exist "%SCRIPT_DIR%bin\" (
 )
 
 copy /Y "%SCRIPT_DIR%build\%APP_NAME%" "%SCRIPT_DIR%bin\" >nul
+if errorlevel 1 (
+    echo [ERROR] Copy failed - is %APP_NAME% still running?
+    exit /b 1
+)
 echo Copied %APP_NAME% to bin\
