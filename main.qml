@@ -128,6 +128,9 @@ Window {
     readonly property string fontMono:   "Consolas"
 
     function applyTheme(index) {
+        // config 手改越界(如 currentTheme: 99)時 t 為 undefined,
+        // 不夾限會在此拋 TypeError 並中止整段 config 載入
+        index = Math.max(0, Math.min(index, themes.length - 1))
         var t = themes[index]
         currentTheme = index
         colorBg = t.bg
@@ -3566,6 +3569,14 @@ Window {
         }
     }
 
+    Connections {
+        target: fileLogger
+        // 寫入失敗(磁碟滿/檔案被刪等)時 C++ 已自動停止記錄,這裡讓使用者看得到
+        function onWriteError(reason) {
+            addTerminalEntry(root.tsNow(), "LOGGING STOPPED — write error: " + reason, "", "error")
+        }
+    }
+
     // ══════════════════════════════════════════════════════════════
     // HELPER FUNCTIONS
     // ══════════════════════════════════════════════════════════════
@@ -4250,6 +4261,7 @@ Window {
             var ts = root.tsNow()
 
             // --baud: override baud combo before connecting
+            // (不在預設清單的值仍直接用於連線,不被靜默改回 combo 目前值)
             if (cmdLineBaud > 0) {
                 var bIdx = root.baudRates.indexOf(cmdLineBaud)
                 if (bIdx >= 0)
@@ -4272,7 +4284,7 @@ Window {
 
                 var ok = serialManager.connectToPort(
                     cmdLinePort,
-                    parseInt(baudCombo.currentText),
+                    cmdLineBaud > 0 ? cmdLineBaud : parseInt(baudCombo.currentText),
                     8, 1, 0
                 )
                 if (!ok)

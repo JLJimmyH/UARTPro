@@ -27,6 +27,7 @@ UARTPro 除了 GUI 串列埠終端機之外,內建可被 script / CI / AI agent(
 | 3 | `--record` 檔案開啟失敗 |
 | 4 | `--timeout` 逾時 |
 | 5 | `--expect-fail` 命中 |
+| 6 | 參數無效:`--baud`/`--timeout` 非正整數、`--expect`/`--expect-fail` regex 無效(stderr 有 JSON 錯誤細節) |
 
 GUI 模式維持原行為:自動連線失敗只顯示在畫面上,程式不退出。
 

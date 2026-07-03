@@ -44,6 +44,8 @@ signals:
     void logFileSizeChanged();
     void logFilePathChanged();
     void formatChanged();
+    // 寫入失敗(磁碟滿/檔案被刪等):已自動 stopLogging,reason 供 UI 顯示
+    void writeError(const QString &reason);
 
 private:
     void flushAndUpdateSize();

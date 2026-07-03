@@ -150,6 +150,7 @@ static void setupParser(QCommandLineParser &parser)
 //   3 = record 檔開啟失敗
 //   4 = timeout
 //   5 = expect-fail 命中
+//   6 = 參數無效(--baud/--timeout 非數字、--expect/--expect-fail regex 無效)
 static int runCli(int argc, char *argv[], bool listPorts)
 {
     QCoreApplication app(argc, argv);
@@ -186,16 +187,34 @@ static int runCli(int argc, char *argv[], bool listPorts)
         fprintf(stderr, "--headless requires --port <COMx>\n");
         return HeadlessRunner::ExitPortFail;
     }
-    if (parser.isSet(QStringLiteral("baud")))
-        opts.baud = parser.value(QStringLiteral("baud")).toInt();
+    // toInt() 不驗證會把打錯的參數靜默變 0:--timeout 打錯 = 逾時保護消失(掛死),
+    // --baud 打錯 = setBaudRate(0) 開埠失敗卻回報成 port 問題
+    if (parser.isSet(QStringLiteral("baud"))) {
+        bool ok = false;
+        const int baud = parser.value(QStringLiteral("baud")).toInt(&ok);
+        if (!ok || baud <= 0) {
+            fprintf(stderr, "invalid --baud value: %s\n",
+                    qPrintable(parser.value(QStringLiteral("baud"))));
+            return HeadlessRunner::ExitBadArgs;
+        }
+        opts.baud = baud;
+    }
     opts.recordPath = parser.value(QStringLiteral("record"));
     if (parser.isSet(QStringLiteral("format")))
         opts.format = parser.value(QStringLiteral("format"));
     opts.streamStdout = parser.isSet(QStringLiteral("stdout"));
     opts.expectPattern = parser.value(QStringLiteral("expect"));
     opts.expectFailPattern = parser.value(QStringLiteral("expect-fail"));
-    if (parser.isSet(QStringLiteral("timeout")))
-        opts.timeoutSec = parser.value(QStringLiteral("timeout")).toInt();
+    if (parser.isSet(QStringLiteral("timeout"))) {
+        bool ok = false;
+        const int timeoutSec = parser.value(QStringLiteral("timeout")).toInt(&ok);
+        if (!ok || timeoutSec < 0) {
+            fprintf(stderr, "invalid --timeout value: %s\n",
+                    qPrintable(parser.value(QStringLiteral("timeout"))));
+            return HeadlessRunner::ExitBadArgs;
+        }
+        opts.timeoutSec = timeoutSec;
+    }
 
     HeadlessRunner runner(opts);
 #ifdef Q_OS_WIN
@@ -204,8 +223,13 @@ static int runCli(int argc, char *argv[], bool listPorts)
 #endif
 
     const int rc = runner.start();
-    if (rc != 0)
+    if (rc != 0) {
+#ifdef Q_OS_WIN
+        // runner 即將解構,先清掉 g_runner 避免 console handler 執行緒 use-after-free
+        g_runner = nullptr;
+#endif
         return rc;
+    }
     const int ret = app.exec();
 #ifdef Q_OS_WIN
     g_runner = nullptr;
@@ -250,8 +274,12 @@ int main(int argc, char *argv[])
     configManager.loadFromFile(configPath);
 
     QString cmdLinePort   = parser.value(QStringLiteral("port"));
-    int     cmdLineBaud   = parser.isSet(QStringLiteral("baud"))
-                                ? parser.value(QStringLiteral("baud")).toInt() : 0;
+    int     cmdLineBaud   = 0;
+    if (parser.isSet(QStringLiteral("baud"))) {
+        bool ok = false;
+        const int baud = parser.value(QStringLiteral("baud")).toInt(&ok);
+        cmdLineBaud = (ok && baud > 0) ? baud : 0;
+    }
     QString cmdLineRecord = parser.value(QStringLiteral("record"));
     QString cmdLineFormat = parser.isSet(QStringLiteral("format"))
                                 ? parser.value(QStringLiteral("format")) : QStringLiteral("text");

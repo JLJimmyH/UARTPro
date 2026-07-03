@@ -1,5 +1,6 @@
 #include "TerminalModel.h"
 #include <QRegularExpression>
+#include <QVarLengthArray>
 
 static const int FLUSH_INTERVAL_MS = 16;
 
@@ -79,11 +80,15 @@ void TerminalModel::flushPending()
     QVariantList appendedMaps;
     appendedMaps.reserve(batch.size());
 
+    // matchesFilter 每次都 toLower 配置,結果存表避免第二輪重算
+    QVarLengthArray<bool, 256> visible(batch.size());
     int visibleAdds = 0;
-    for (TerminalEntry &e : batch) {
+    for (int i = 0; i < batch.size(); ++i) {
+        TerminalEntry &e = batch[i];
         e.entryIndex = m_nextIndex++;
         e.hlColor = computeHlColor(e);
-        if (matchesFilter(e))
+        visible[i] = matchesFilter(e);
+        if (visible[i])
             ++visibleAdds;
         appendedMaps.append(entryToMap(e));
     }
@@ -91,9 +96,9 @@ void TerminalModel::flushPending()
     if (visibleAdds > 0) {
         const int first = m_visible.size();
         beginInsertRows(QModelIndex(), first, first + visibleAdds - 1);
-        for (const TerminalEntry &e : batch) {
-            m_all.append(e);
-            if (matchesFilter(e))
+        for (int i = 0; i < batch.size(); ++i) {
+            m_all.append(batch.at(i));
+            if (visible[i])
                 m_visible.append(m_all.size() - 1);
         }
         endInsertRows();
@@ -296,8 +301,13 @@ QVariantList TerminalModel::highlightMarkers() const
 QVariantList TerminalModel::entryIndicesInRange(int loRow, int hiRow) const
 {
     QVariantList result;
+    // 空 model 防禦:trim 可能把 m_visible 清空,拖曳選取中的 stale row 會打進來
+    if (m_visible.isEmpty())
+        return result;
     const int lo = qBound(0, loRow, m_visible.size() - 1);
     const int hi = qBound(0, hiRow, m_visible.size() - 1);
+    if (hi < lo)
+        return result;
     for (int row = lo; row <= hi; ++row)
         result.append(m_all.at(m_visible.at(row)).entryIndex);
     return result;

@@ -1,11 +1,13 @@
 #include "ConfigManager.h"
 #include <QCoreApplication>
+#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QSaveFile>
+#include <QUrl>
 
 static const int SAVE_DEBOUNCE_MS = 500;
 static const int CONFIG_VERSION = 2;
@@ -31,12 +33,11 @@ ConfigManager::~ConfigManager()
 
 QString ConfigManager::toLocalPath(const QString &path)
 {
-    QString p = path;
-    if (p.startsWith(QStringLiteral("file:///")))
-        p = p.mid(8);
-    else if (p.startsWith(QStringLiteral("file://")))
-        p = p.mid(7);
-    return p;
+    // QUrl::toLocalFile 正確處理 drive path、UNC(file://server/share)與 percent-encoding
+    const QUrl url(path);
+    if (url.isLocalFile())
+        return url.toLocalFile();
+    return path;
 }
 
 QString ConfigManager::defaultConfigPath() const
@@ -94,28 +95,19 @@ void ConfigManager::loadInternal(const QString &path)
 
     QJsonObject root = doc.object();
 
-    if (root.contains(QStringLiteral("uiScale")))
-        setUiScale(root.value(QStringLiteral("uiScale")).toDouble(1.0));
-    if (root.contains(QStringLiteral("terminalFontSize")))
-        setTerminalFontSize(root.value(QStringLiteral("terminalFontSize")).toInt(12));
-    if (root.contains(QStringLiteral("currentTheme")))
-        setCurrentTheme(root.value(QStringLiteral("currentTheme")).toInt(4));
-    if (root.contains(QStringLiteral("showPrefix")))
-        setShowPrefix(root.value(QStringLiteral("showPrefix")).toBool(true));
-    if (root.contains(QStringLiteral("hexDisplayMode")))
-        setHexDisplayMode(root.value(QStringLiteral("hexDisplayMode")).toBool(false));
-    if (root.contains(QStringLiteral("showTimestamp")))
-        setShowTimestamp(root.value(QStringLiteral("showTimestamp")).toBool(true));
-    if (root.contains(QStringLiteral("showDate")))
-        setShowDate(root.value(QStringLiteral("showDate")).toBool(false));
-    if (root.contains(QStringLiteral("showLineNumbers")))
-        setShowLineNumbers(root.value(QStringLiteral("showLineNumbers")).toBool(false));
-    if (root.contains(QStringLiteral("colorNumbers")))
-        setColorNumbers(root.value(QStringLiteral("colorNumbers")).toBool(true));
-    if (root.contains(QStringLiteral("maxBufferLines")))
-        setMaxBufferLines(root.value(QStringLiteral("maxBufferLines")).toInt(50000));
-    if (root.contains(QStringLiteral("lastLogDir")))
-        setLastLogDir(root.value(QStringLiteral("lastLogDir")).toString());
+    // 欄位缺席時一律還原預設值(QJsonValue 的 default 參數),而非保留載入前狀態:
+    // 執行期拖放切換 config 時,舊值滲漏會隨 debounced save 回寫污染新檔
+    setUiScale(root.value(QStringLiteral("uiScale")).toDouble(1.0));
+    setTerminalFontSize(root.value(QStringLiteral("terminalFontSize")).toInt(12));
+    setCurrentTheme(root.value(QStringLiteral("currentTheme")).toInt(4));
+    setShowPrefix(root.value(QStringLiteral("showPrefix")).toBool(true));
+    setHexDisplayMode(root.value(QStringLiteral("hexDisplayMode")).toBool(false));
+    setShowTimestamp(root.value(QStringLiteral("showTimestamp")).toBool(true));
+    setShowDate(root.value(QStringLiteral("showDate")).toBool(false));
+    setShowLineNumbers(root.value(QStringLiteral("showLineNumbers")).toBool(false));
+    setColorNumbers(root.value(QStringLiteral("colorNumbers")).toBool(true));
+    setMaxBufferLines(root.value(QStringLiteral("maxBufferLines")).toInt(50000));
+    setLastLogDir(root.value(QStringLiteral("lastLogDir")).toString());
 
     auto readArray = [](const QJsonArray &arr, const QString &arrayType) -> QVariantList {
         QVariantList result;
@@ -240,10 +232,15 @@ void ConfigManager::saveToFile()
     QJsonDocument doc(root);
     // QSaveFile: 寫 temp 檔 + atomic rename,寫入中斷不會毀掉原設定
     QSaveFile file(m_configFilePath);
-    if (file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
-        file.write(doc.toJson(QJsonDocument::Indented));
-        file.commit();
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        qWarning() << "ConfigManager: cannot open config for write:"
+                   << m_configFilePath << file.errorString();
+        return;
     }
+    file.write(doc.toJson(QJsonDocument::Indented));
+    if (!file.commit())
+        qWarning() << "ConfigManager: config save failed:"
+                   << m_configFilePath << file.errorString();
 }
 
 void ConfigManager::scheduleSave()
@@ -354,6 +351,7 @@ void ConfigManager::setColorNumbers(bool value)
 
 void ConfigManager::setMaxBufferLines(int value)
 {
+    value = qMax(1, value);
     if (m_maxBufferLines == value) return;
     m_maxBufferLines = value;
     emit maxBufferLinesChanged();

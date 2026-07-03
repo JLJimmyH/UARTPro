@@ -2,6 +2,7 @@
 #include <QDir>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QUrl>
 #include "version.h"
 
 FileLogger::FileLogger(QObject *parent)
@@ -68,12 +69,11 @@ bool FileLogger::startLogging(const QString &filePath, const QString &format)
     if (isLogging())
         stopLogging();
 
+    // QML FileDialog 給 file:// URL;QUrl::toLocalFile 正確處理 drive path、UNC 與 percent-encoding
     QString localPath = filePath;
-    // Strip file:/// prefix (from QML FileDialog)
-    if (localPath.startsWith(QStringLiteral("file:///")))
-        localPath = localPath.mid(8);
-    else if (localPath.startsWith(QStringLiteral("file://")))
-        localPath = localPath.mid(7);
+    const QUrl url(filePath);
+    if (url.isLocalFile())
+        localPath = url.toLocalFile();
 
     m_file = new QFile(localPath, this);
     if (!m_file->open(QIODevice::Append | QIODevice::Text)) {
@@ -157,9 +157,14 @@ void FileLogger::logStructured(const QString &type, const QString &ascii,
     if (!isLogging() || !m_stream)
         return;
 
-    // 優先用擷取行時間(本地格式轉 ISODateWithMs);留空或解析失敗才用寫入當下時間
+    // 優先用擷取行時間(本地格式轉 ISODateWithMs);留空或解析失敗才用寫入當下時間。
+    // ts 由 SerialPortManager 以固定格式 "yyyy-MM-dd HH:mm:ss.zzz"(23 字元)產生,
+    // 快路徑只需把第 10 字元的空白換成 'T',免去每行 fromString 重建 parser
     QString isoTs;
-    if (!ts.isEmpty()) {
+    if (ts.size() == 23 && ts.at(10) == QLatin1Char(' ')) {
+        isoTs = ts;
+        isoTs[10] = QLatin1Char('T');
+    } else if (!ts.isEmpty()) {
         QDateTime dt = QDateTime::fromString(ts, QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"));
         isoTs = dt.isValid() ? dt.toString(Qt::ISODateWithMs)
                              : QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
@@ -192,6 +197,14 @@ void FileLogger::flushAndUpdateSize()
         return;
 
     m_stream->flush();
+    // QTextStream 底層寫入失敗(磁碟滿/檔案被刪/裝置拔除)後會靜默丟棄所有輸出,
+    // 這裡是唯一的偵測點:失敗即停止記錄並通知 UI,避免使用者以為仍在錄
+    if (m_stream->status() != QTextStream::Ok || m_file->error() != QFile::NoError) {
+        const QString reason = m_file->errorString();
+        stopLogging();
+        emit writeError(reason);
+        return;
+    }
     qint64 newSize = m_file->size();
     if (newSize != m_logFileSize) {
         m_logFileSize = newSize;

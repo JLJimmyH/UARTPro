@@ -32,6 +32,22 @@ HeadlessRunner::HeadlessRunner(const HeadlessOptions &opts, QObject *parent)
 
 int HeadlessRunner::start()
 {
+    // 無效 regex 若不擋下,pattern 永遠不命中:沒 --timeout 時自動化會永久掛住
+    if (!m_opts.expectPattern.isEmpty() && !m_expect.isValid()) {
+        printStderrJson({ { QStringLiteral("event"), QStringLiteral("error") },
+                          { QStringLiteral("reason"), QStringLiteral("invalid --expect regex") },
+                          { QStringLiteral("detail"), m_expect.errorString() },
+                          { QStringLiteral("offset"), m_expect.patternErrorOffset() } });
+        return ExitBadArgs;
+    }
+    if (!m_opts.expectFailPattern.isEmpty() && !m_expectFail.isValid()) {
+        printStderrJson({ { QStringLiteral("event"), QStringLiteral("error") },
+                          { QStringLiteral("reason"), QStringLiteral("invalid --expect-fail regex") },
+                          { QStringLiteral("detail"), m_expectFail.errorString() },
+                          { QStringLiteral("offset"), m_expectFail.patternErrorOffset() } });
+        return ExitBadArgs;
+    }
+
     if (!m_opts.recordPath.isEmpty()) {
         if (!m_logger.startLogging(m_opts.recordPath, m_opts.format)) {
             printStderrJson({ { QStringLiteral("event"), QStringLiteral("error") },

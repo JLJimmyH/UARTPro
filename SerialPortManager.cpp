@@ -1,4 +1,5 @@
 #include "SerialPortManager.h"
+#include <QRegularExpression>
 
 SerialPortManager::SerialPortManager(QObject *parent)
     : QObject(parent)
@@ -130,7 +131,7 @@ bool SerialPortManager::connectToPort(const QString &portName, int baudRate,
         return true;
     }
 
-    emit errorOccurred(m_serialPort->errorString());
+    // open 失敗時 QSerialPort 已同步發 errorOccurred → handleError 轉發,這裡不重複發
     return false;
 }
 
@@ -160,19 +161,29 @@ bool SerialPortManager::sendData(const QString &data, bool hexMode)
 
     QByteArray bytes;
     if (hexMode) {
-        QString cleaned = data.simplified().remove(QLatin1Char(' '));
+        const QString cleaned = data.simplified().remove(QLatin1Char(' '));
+        // fromHex 會靜默跳過非法字元、重排奇數長度,送出的 bytes 會與畫面不符 → 先驗證
+        static const QRegularExpression hexRe(QStringLiteral("^[0-9A-Fa-f]*$"));
+        if (cleaned.isEmpty() || (cleaned.size() % 2) != 0
+            || !hexRe.match(cleaned).hasMatch()) {
+            emit errorOccurred(QStringLiteral("Invalid hex input — need an even count of 0-9/A-F digits"));
+            return false;
+        }
         bytes = QByteArray::fromHex(cleaned.toLatin1());
     } else {
         bytes = data.toUtf8();
     }
+    if (bytes.isEmpty())
+        return false;
 
-    qint64 written = m_serialPort->write(bytes);
-    if (written > 0) {
-        m_txBytes += written;
-        emit txBytesChanged();
-        return true;
+    const qint64 written = m_serialPort->write(bytes);
+    if (written < bytes.size()) {
+        emit errorOccurred(QStringLiteral("TX failed: ") + m_serialPort->errorString());
+        return false;
     }
-    return false;
+    m_txBytes += written;
+    emit txBytesChanged();
+    return true;
 }
 
 void SerialPortManager::tryReconnect()
@@ -250,8 +261,18 @@ void SerialPortManager::processRxBuffer(bool flushAll)
         }
         if (splitPos < 0) {
             if (size - pos >= MAX_LINE_BYTES) {
-                emitLine(m_rxBuffer.mid(pos, MAX_LINE_BYTES));
-                pos += MAX_LINE_BYTES;
+                // 強制切行時避開 UTF-8 多位元組序列中間:切點若落在 continuation byte
+                // (0b10xxxxxx)上,往回退到 lead byte 邊界(最多 3 bytes)
+                int cut = MAX_LINE_BYTES;
+                if (pos + cut < size) {
+                    for (int back = 0; back < 3 && cut > 1; ++back) {
+                        if ((static_cast<unsigned char>(m_rxBuffer.at(pos + cut)) & 0xC0) != 0x80)
+                            break;
+                        --cut;
+                    }
+                }
+                emitLine(m_rxBuffer.mid(pos, cut));
+                pos += cut;
                 continue;
             }
             break;
@@ -281,13 +302,13 @@ void SerialPortManager::emitLine(const QByteArray &lineData)
     // 存完整日期+時間: 多天燒機跨午夜時畫面/ log 才能辨日(畫面依 showDate 決定是否顯示日期段)
     QString timestamp = QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz"));
 
-    // Build ASCII representation, replace non-printable chars with '.'
+    // UTF-8 解碼(韌體輸出中文 log 才能正常顯示),控制字元/無效序列以 '.' 呈現
+    const QString decoded = QString::fromUtf8(lineData);
     QString asciiStr;
-    asciiStr.reserve(lineData.size());
-    for (int i = 0; i < lineData.size(); ++i) {
-        char c = lineData.at(i);
-        if (c >= 32 && c <= 126)
-            asciiStr += QLatin1Char(c);
+    asciiStr.reserve(decoded.size());
+    for (const QChar &ch : decoded) {
+        if (ch.isPrint())
+            asciiStr += ch;
         else
             asciiStr += QLatin1Char('.');
     }

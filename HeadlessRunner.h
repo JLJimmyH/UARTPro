@@ -9,7 +9,7 @@
 
 // --headless 模式: 不載 QML,純錄製/串流/pattern 等待。
 // exit codes: 0=正常或 expect 命中, 2=port 開啟失敗, 3=record 開檔失敗,
-//             4=timeout, 5=expect-fail 命中
+//             4=timeout, 5=expect-fail 命中, 6=參數無效(baud/timeout/regex)
 struct HeadlessOptions {
     QString port;
     int baud = 115200;
@@ -30,7 +30,8 @@ public:
         ExitPortFail = 2,
         ExitRecordFail = 3,
         ExitTimeout = 4,
-        ExitExpectFail = 5
+        ExitExpectFail = 5,
+        ExitBadArgs = 6
     };
 
     explicit HeadlessRunner(const HeadlessOptions &opts, QObject *parent = nullptr);
