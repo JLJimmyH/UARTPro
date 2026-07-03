@@ -14,7 +14,7 @@
 struct TerminalEntry {
     QString timestamp;   // 顯示用 "HH:mm:ss.zzz"
     QString msgText;
-    QString hexData;
+    QByteArray raw;      // 原始 bytes;hex 字串需要時才由此生成(常駐記憶體約省 2/3)
     QString type;        // "rx" | "tx" | "system" | "error"
     int     entryIndex;  // 全域遞增,clear 後歸零
     QString hlColor;     // 命中的第一個 keyword 色彩(scroll bar 標記用),空=未命中
@@ -27,6 +27,8 @@ class TerminalModel : public QAbstractListModel
     Q_PROPERTY(int totalCount READ totalCount NOTIFY totalCountChanged)
     Q_PROPERTY(int maxLines READ maxLines WRITE setMaxLines NOTIFY maxLinesChanged)
     Q_PROPERTY(bool filterActive READ filterActive NOTIFY filterActiveChanged)
+    // QML 在記錄 log 時設 true;false 時 flushPending 不建 QVariantMap payload(高速路徑省跨界成本)
+    Q_PROPERTY(bool logSinkActive READ logSinkActive WRITE setLogSinkActive NOTIFY logSinkActiveChanged)
 
 public:
     enum Roles {
@@ -48,6 +50,8 @@ public:
     int maxLines() const { return m_maxLines; }
     void setMaxLines(int lines);
     bool filterActive() const { return !m_includes.isEmpty() || !m_excludes.isEmpty(); }
+    bool logSinkActive() const { return m_logSinkActive; }
+    void setLogSinkActive(bool active);
 
     Q_INVOKABLE void appendEntry(const QString &timestamp, const QString &msgText,
                                  const QString &hexData, const QString &type);
@@ -56,22 +60,28 @@ public:
     Q_INVOKABLE void setFilters(const QVariantList &filters);
     Q_INVOKABLE QVariantList search(const QString &query, bool isRegex, bool hexMode) const;
     Q_INVOKABLE QVariantList allEntries() const;
+    Q_INVOKABLE QVariantList visibleEntries() const;   // 只含通過 filter 的可見列
     Q_INVOKABLE QVariantList entryIndicesInRange(int loRow, int hiRow) const;
+    // entryIndex → model row(二分搜尋;不在可見列回 -1),取代 QML 逐列 get() 線性掃描
+    Q_INVOKABLE int rowForEntryIndex(int entryIndex) const;
     // keyword highlight 同步(append 時即計算 hlColor,keyword 變更時全量重算)
     Q_INVOKABLE void setHighlightKeywords(const QVariantList &keywords, bool hexMode);
     // 回傳可見列中有命中 keyword 的 [{row, color}],給 scroll bar 標記
     Q_INVOKABLE QVariantList highlightMarkers() const;
 
 public slots:
-    void appendRxLine(const QString &timestamp, const QString &asciiData, const QString &hexData);
+    void appendRxLine(const QString &timestamp, const QString &asciiData, const QByteArray &rawData);
 
 signals:
     void countChanged();
     void totalCountChanged();
     void maxLinesChanged();
     void filterActiveChanged();
-    // 每批 flush 的所有 entry(含被 filter 掉的) — QML 用來寫 log + autoscroll
+    void logSinkActiveChanged();
+    // 每批 flush 的所有 entry(含被 filter 掉的) — 僅 logSinkActive 時發出,QML 用來寫 log
     void entriesAppended(const QVariantList &entries);
+    // 每批 flush 都發出(無 payload)— QML autoscroll 用
+    void entriesFlushed();
     void trimmed(int removedCount, int removedMaxEntryIndex);
     void highlightKeywordsChanged();
 
@@ -87,6 +97,7 @@ private:
     bool matchesFilter(const TerminalEntry &e) const;
     QString computeHlColor(const TerminalEntry &e) const;
     void trimIfNeeded();
+    static QString hexString(const TerminalEntry &e);
     static QVariantMap entryToMap(const TerminalEntry &e);
 
     QList<TerminalEntry> m_all;
@@ -99,6 +110,7 @@ private:
     QTimer m_flushTimer;
     int m_maxLines = 50000;
     int m_nextIndex = 0;
+    bool m_logSinkActive = false;
 };
 
 #endif // TERMINALMODEL_H

@@ -185,7 +185,7 @@ Window {
     onShowPrefixChanged: if (configManager) configManager.showPrefix = showPrefix
     onHexDisplayModeChanged: {
         if (configManager) configManager.hexDisplayMode = hexDisplayMode
-        syncKeywordsToConfig()   // hlColor 比對來源(ascii/hex)跟著切換
+        scheduleKeywordSync()   // hlColor 比對來源(ascii/hex)跟著切換
     }
     onShowTimestampChanged: if (configManager) configManager.showTimestamp = showTimestamp
     onShowDateChanged: if (configManager) configManager.showDate = showDate
@@ -228,6 +228,9 @@ Window {
     property bool searchRegex: false
     property int searchCurrentIndex: -1
     property var searchMatches: []
+    // delegate O(1) 查表用:searchMatches 的 { row: true } 版本 + 目前命中列
+    property var searchMatchSet: ({})
+    property int searchCurrentRow: -1
     property bool autoScrollBeforeSearch: true
     property bool helpPopupVisible: false
 
@@ -239,7 +242,7 @@ Window {
     readonly property var lineEndings:  ["None", "CR", "LF", "CR+LF"]
 
     // ── Data Models ────────────────────────────────────────────────
-    ListModel { id: keywordModel;  onCountChanged: { root.keywordRevision++; syncKeywordsToConfig() } }
+    ListModel { id: keywordModel;  onCountChanged: { root.keywordRevision++; scheduleKeywordSync() } }
     ListModel { id: filterModel;   onCountChanged: { root.filterRevision++; scheduleFilterSync() } }
 
     // Hidden TextEdit for clipboard access
@@ -364,8 +367,7 @@ Window {
             if (root.searchBarVisible) {
                 root.searchBarVisible = false
                 root.searchQuery = ""
-                root.searchMatches = []
-                root.searchCurrentIndex = -1
+                root.clearSearchResults()
                 root.autoScroll = root.autoScrollBeforeSearch
             }
         }
@@ -616,7 +618,7 @@ Window {
                                 && colorPickerPopup.targetIndex < keywordModel.count) {
                                 keywordModel.setProperty(colorPickerPopup.targetIndex, "color", modelData)
                                 root.keywordRevision++
-                                syncKeywordsToConfig()
+                                scheduleKeywordSync()
                             }
                             colorPickerPopup.close()
                         }
@@ -705,7 +707,7 @@ Window {
                         property real offset: 0
                     }
                     SequentialAnimation {
-                        running: true
+                        running: root.visible
                         loops: Animation.Infinite
                         PauseAnimation { duration: 5000 }
                         NumberAnimation { target: glitchAnim; property: "offset"; to: 3; duration: 50; easing.type: Easing.InOutQuad }
@@ -889,9 +891,11 @@ Window {
                         anchors.verticalCenter: parent.verticalCenter
                         color: serialManager.connected ? root.colorAccent : root.colorDestructive
 
+                        // 只在連線時呼吸:離線靜態顯示,idle 時不再以 60fps 連續重繪整個視窗
                         SequentialAnimation on opacity {
-                            running: true
+                            running: serialManager.connected && root.visible
                             loops: Animation.Infinite
+                            onStopped: statusDot.opacity = 1.0
                             NumberAnimation { to: 0.3; duration: 800; easing.type: Easing.InOutSine }
                             NumberAnimation { to: 1.0; duration: 800; easing.type: Easing.InOutSine }
                         }
@@ -1372,7 +1376,7 @@ Window {
                                                 onClicked: {
                                                     keywordModel.setProperty(index, "enabled", !model.enabled)
                                                     root.keywordRevision++
-                                                    syncKeywordsToConfig()
+                                                    scheduleKeywordSync()
                                                 }
                                                 onDoubleClicked: {
                                                     filterTypeCombo.currentIndex = 0
@@ -1433,7 +1437,7 @@ Window {
                                                             var next = modes[(cur + 1) % modes.length]
                                                             keywordModel.setProperty(index, "mode", next)
                                                             root.keywordRevision++
-                                                            syncKeywordsToConfig()
+                                                            scheduleKeywordSync()
                                                         }
                                                     }
                                                 }
@@ -1463,7 +1467,7 @@ Window {
                                                         onClicked: {
                                                             keywordModel.setProperty(index, "enabled", !model.enabled)
                                                             root.keywordRevision++
-                                                            syncKeywordsToConfig()
+                                                            scheduleKeywordSync()
                                                         }
                                                     }
                                                 }
@@ -1487,7 +1491,7 @@ Window {
                                                         onClicked: {
                                                             root.keywordRevision++
                                                             keywordModel.remove(index)
-                                                            syncKeywordsToConfig()
+                                                            scheduleKeywordSync()
                                                         }
                                                     }
                                                 }
@@ -2380,8 +2384,7 @@ Window {
                                         root.searchBarVisible = false
                                         root.searchQuery = ""
                                         searchInput.text = ""
-                                        root.searchMatches = []
-                                        root.searchCurrentIndex = -1
+                                        root.clearSearchResults()
                                         root.autoScroll = root.autoScrollBeforeSearch
                                     }
                                 }
@@ -2414,6 +2417,8 @@ Window {
                             clip: true
                             interactive: false   // disable mouse-drag scrolling; wheel still works via MouseArea
                             boundsBehavior: Flickable.StopAtBounds
+                            // delegate 重(RichText+多層背景),回收重繫結遠比整棵重建便宜
+                            reuseItems: true
 
                             // Auto-scroll rules:
                             //   1. Scroll to bottom → enable auto-scroll
@@ -2495,6 +2500,11 @@ Window {
                                 required property var type
                                 required property var entryIndex
 
+                                // 供外部互動層(charPosInRow/getCharXInDelegate 等)直接取用,
+                                // 免去 objectName 樹搜尋;editTextItem 在 Loader 未載入時為 null
+                                property Item displayTextItem: displayText
+                                property Item editTextItem: editLoader.item
+
                                 property color resolvedColor: {
                                     switch (String(type)) {
                                     case "rx":     return root.colorAccent
@@ -2512,15 +2522,13 @@ Window {
 
                                 property int searchMatchType: {
                                     // 0 = no match, 1 = other match, 2 = current match
+                                    // O(1) 查表(searchMatchSet),取代對整個命中陣列的線性掃描
                                     if (!root.searchBarVisible || root.searchMatches.length === 0)
                                         return 0
                                     var idx = entryDelegate.index
-                                    if (root.searchCurrentIndex >= 0 && root.searchMatches[root.searchCurrentIndex] === idx)
+                                    if (idx === root.searchCurrentRow)
                                         return 2
-                                    for (var i = 0; i < root.searchMatches.length; i++) {
-                                        if (root.searchMatches[i] === idx) return 1
-                                    }
-                                    return 0
+                                    return root.searchMatchSet.hasOwnProperty(idx) ? 1 : 0
                                 }
 
                                 // Selection highlight background
@@ -2610,24 +2618,26 @@ Window {
                                         width: parent.width - x
                                     }
 
-                                    // Selectable TextEdit (plain text, shown on click for char-level selection)
-                                    TextEdit {
-                                        id: editText
-                                        objectName: "editText"
-                                        visible: root.activeEditRow === entryDelegate.entryIndex
-                                        text: displayText.text
-                                        textFormat: TextEdit.RichText
-                                        readOnly: true
-                                        selectByMouse: false   // we control selection programmatically
-                                        font.family: root.fontMono
-                                        font.pixelSize: root.terminalFontSize
-                                        color: entryDelegate.resolvedColor
-                                        selectedTextColor: root.colorBg
-                                        selectionColor: Qt.rgba(root.colorAccent.r, root.colorAccent.g, root.colorAccent.b, 0.6)
-                                        wrapMode: TextEdit.WrapAnywhere
+                                    // Selectable TextEdit (char-level selection) — Loader 包起來:
+                                    // TextEdit 的 QTextDocument 在 text 賦值時就會建立(invisible 也一樣),
+                                    // 只有 activeEditRow 命中的那一列才需要,其他列一律不實體化
+                                    Loader {
+                                        id: editLoader
+                                        active: root.activeEditRow === entryDelegate.entryIndex
                                         width: parent.width - x
-                                        onVisibleChanged: {
-                                            if (visible) deselect()
+                                        sourceComponent: TextEdit {
+                                            objectName: "editText"
+                                            text: displayText.text
+                                            textFormat: TextEdit.RichText
+                                            readOnly: true
+                                            selectByMouse: false   // we control selection programmatically
+                                            font.family: root.fontMono
+                                            font.pixelSize: root.terminalFontSize
+                                            color: entryDelegate.resolvedColor
+                                            selectedTextColor: root.colorBg
+                                            selectionColor: Qt.rgba(root.colorAccent.r, root.colorAccent.g, root.colorAccent.b, 0.6)
+                                            wrapMode: TextEdit.WrapAnywhere
+                                            width: editLoader.width
                                         }
                                     }
                                 }
@@ -2647,34 +2657,38 @@ Window {
                                     clip: true
 
                                     // Re-render the row text in selectedTextColor inside the highlight rect
-                                    Row {
-                                        // Position this row so its text aligns exactly with dataRow
-                                        x: dataRow.x - partialSelRect.x
-                                        y: dataRow.y
-                                        spacing: dataRow.spacing
+                                    // Loader 包起來:只有跨行拖曳命中的列才建立(免每列常駐第三份 RichText)
+                                    Loader {
+                                        active: partialSelRect.visible
+                                        sourceComponent: Row {
+                                            // Position this row so its text aligns exactly with dataRow
+                                            x: dataRow.x - partialSelRect.x
+                                            y: dataRow.y
+                                            spacing: dataRow.spacing
 
-                                        Text {
-                                            visible: root.showLineNumbers
-                                            text: String(entryDelegate.entryIndex + 1).padStart(4, ' ')
-                                            font.family: root.fontMono
-                                            font.pixelSize: root.terminalFontSize
-                                            color: root.colorBg
-                                        }
-                                        Text {
-                                            visible: root.showTimestamp
-                                            text: root.showDate ? (entryDelegate.timestamp || "") : root.tsTimeOnly(entryDelegate.timestamp || "")
-                                            font.family: root.fontMono
-                                            font.pixelSize: root.terminalFontSize
-                                            color: root.colorBg
-                                        }
-                                        Text {
-                                            text: displayText.text
-                                            textFormat: Text.RichText
-                                            font.family: root.fontMono
-                                            font.pixelSize: root.terminalFontSize
-                                            color: root.colorBg
-                                            wrapMode: Text.WrapAnywhere
-                                            width: displayText.width
+                                            Text {
+                                                visible: root.showLineNumbers
+                                                text: String(entryDelegate.entryIndex + 1).padStart(4, ' ')
+                                                font.family: root.fontMono
+                                                font.pixelSize: root.terminalFontSize
+                                                color: root.colorBg
+                                            }
+                                            Text {
+                                                visible: root.showTimestamp
+                                                text: root.showDate ? (entryDelegate.timestamp || "") : root.tsTimeOnly(entryDelegate.timestamp || "")
+                                                font.family: root.fontMono
+                                                font.pixelSize: root.terminalFontSize
+                                                color: root.colorBg
+                                            }
+                                            Text {
+                                                text: displayText.text
+                                                textFormat: Text.RichText
+                                                font.family: root.fontMono
+                                                font.pixelSize: root.terminalFontSize
+                                                color: root.colorBg
+                                                wrapMode: Text.WrapAnywhere
+                                                width: displayText.width
+                                            }
                                         }
                                     }
 
@@ -2746,16 +2760,9 @@ Window {
                             }
 
                             function findTextInDelegate(item) {
-                                for (var i = 0; i < item.children.length; i++) {
-                                    var child = item.children[i]
-                                    if (child.children) {
-                                        for (var j = 0; j < child.children.length; j++) {
-                                            var gc = child.children[j]
-                                            if (gc.objectName === "editText" && gc.visible) return gc
-                                            if (gc.objectName === "displayText" && gc.visible) return gc
-                                        }
-                                    }
-                                }
+                                // delegate 以 property 直接暴露文字項,免 objectName 樹搜尋
+                                if (item.editTextItem && item.editTextItem.visible) return item.editTextItem
+                                if (item.displayTextItem && item.displayTextItem.visible) return item.displayTextItem
                                 return null
                             }
 
@@ -3510,10 +3517,14 @@ Window {
     Connections {
         target: terminalModel
 
-        // 每批 flush(~16ms)呼叫一次: 批次寫 log + 單次 autoscroll
+        // 只在 logSinkActive(錄製中)時發出: 批次寫 log
         function onEntriesAppended(entries) {
             if (fileLogger.logging)
                 logEntriesToFile(entries)
+        }
+
+        // 每批 flush(~16ms)都發出(無 payload): 單次 autoscroll
+        function onEntriesFlushed() {
             if (root.autoScroll)
                 terminalView.positionViewAtEnd()
         }
@@ -3528,10 +3539,8 @@ Window {
             }
             root.selectedSet = newSel
             root.selectionVersion++
-            if (root.searchMatches.length > 0) {
-                root.searchMatches = []
-                root.searchCurrentIndex = -1
-            }
+            if (root.searchMatches.length > 0)
+                root.clearSearchResults()
         }
     }
 
@@ -3574,6 +3583,10 @@ Window {
         // 寫入失敗(磁碟滿/檔案被刪等)時 C++ 已自動停止記錄,這裡讓使用者看得到
         function onWriteError(reason) {
             addTerminalEntry(root.tsNow(), "LOGGING STOPPED — write error: " + reason, "", "error")
+        }
+        // 錄製狀態同步給 model:未錄製時 flushPending 不建 QVariantMap payload
+        function onLoggingChanged() {
+            terminalModel.logSinkActive = fileLogger.logging
         }
     }
 
@@ -3659,22 +3672,34 @@ Window {
     }
 
     // ── Search ────────────────────────────────────────────────
+    function clearSearchResults() {
+        root.searchMatches = []
+        root.searchMatchSet = {}
+        root.searchCurrentIndex = -1
+        root.searchCurrentRow = -1
+    }
+
     function performSearch() {
         var q = root.searchQuery
         if (q === "") {
-            root.searchMatches = []
-            root.searchCurrentIndex = -1
+            clearSearchResults()
             return
         }
 
         var matches = terminalModel.search(q, root.searchRegex, root.hexDisplayMode)
 
         root.searchMatches = matches
+        var set = {}
+        for (var i = 0; i < matches.length; i++)
+            set[matches[i]] = true
+        root.searchMatchSet = set
         if (matches.length > 0) {
             root.searchCurrentIndex = 0
+            root.searchCurrentRow = matches[0]
             terminalView.positionViewAtIndex(matches[0], ListView.Center)
         } else {
             root.searchCurrentIndex = -1
+            root.searchCurrentRow = -1
         }
     }
 
@@ -3686,6 +3711,7 @@ Window {
         if (idx < 0) idx = root.searchMatches.length - 1
 
         root.searchCurrentIndex = idx
+        root.searchCurrentRow = root.searchMatches[idx]
         terminalView.positionViewAtIndex(root.searchMatches[idx], ListView.Center)
     }
 
@@ -3804,17 +3830,11 @@ Window {
         if (charPos <= 0) return 0
         var charWidth = monoCharMetrics.advanceWidth
         if (charWidth <= 0) return 0
-        for (var i = 0; i < delegateItem.children.length; i++) {
-            var child = delegateItem.children[i]
-            if (!child.children) continue
-            for (var j = 0; j < child.children.length; j++) {
-                var gc = child.children[j]
-                if (gc.objectName === "displayText" || (gc.objectName === "editText" && gc.visible)) {
-                    return child.x + gc.x + charPos * charWidth
-                }
-            }
-        }
-        return 0
+        var t = (delegateItem.editTextItem && delegateItem.editTextItem.visible)
+            ? delegateItem.editTextItem : delegateItem.displayTextItem
+        if (!t) return 0
+        // mapToItem 吃 Loader 巢狀層級,回傳文字項在 delegate 座標系的 x
+        return t.mapToItem(delegateItem, 0, 0).x + charPos * charWidth
     }
 
     // ── Selection ───────────────────────────────────────────────
@@ -3839,10 +3859,9 @@ Window {
         var lo = Math.min(fromRow, toRow)
         var hi = Math.max(fromRow, toRow)
         var s = root.selectedSet
-        for (var i = lo; i <= hi; i++) {
-            var entry = terminalModel.get(i)
-            if (entry) s[entry.entryIndex] = true
-        }
+        var idxs = terminalModel.entryIndicesInRange(lo, hi)   // 一次跨界取代逐列 get()
+        for (var i = 0; i < idxs.length; i++)
+            s[idxs[i]] = true
         root.selectedSet = s
         root.selectionVersion++
     }
@@ -3862,9 +3881,9 @@ Window {
 
     function selectAllEntries() {
         var s = {}
-        for (var i = 0; i < terminalModel.count; i++) {
-            s[terminalModel.get(i).entryIndex] = true
-        }
+        var idxs = terminalModel.entryIndicesInRange(0, terminalModel.count - 1)   // 一次跨界
+        for (var i = 0; i < idxs.length; i++)
+            s[idxs[i]] = true
         root.selectedSet = s
         root.selectionVersion++
     }
@@ -4038,26 +4057,12 @@ Window {
     }
 
     function findEditText(item) {
-        // Walk children to find the editText TextEdit
-        for (var i = 0; i < item.children.length; i++) {
-            var child = item.children[i]
-            if (child.objectName === "editText") return child
-            // Check grandchildren (inside Row)
-            if (child.children) {
-                for (var j = 0; j < child.children.length; j++) {
-                    if (child.children[j].objectName === "editText")
-                        return child.children[j]
-                }
-            }
-        }
-        return null
+        // delegate 暴露的 editTextItem(Loader 未載入時為 null)
+        return item.editTextItem || null
     }
 
     function getModelIndexForEntry(entryIdx) {
-        for (var i = 0; i < terminalModel.count; i++) {
-            if (terminalModel.get(i).entryIndex === entryIdx) return i
-        }
-        return -1
+        return terminalModel.rowForEntryIndex(entryIdx)   // C++ 二分搜尋
     }
 
     function copySelectedEntries() {
@@ -4117,10 +4122,9 @@ Window {
 
     function copyAllEntries() {
         var lines = []
-        for (var i = 0; i < terminalModel.count; i++) {
-            var entry = terminalModel.get(i)
-            lines.push(buildEntryText(entry))
-        }
+        var entries = terminalModel.visibleEntries()   // 一次跨界取代逐列 get()
+        for (var i = 0; i < entries.length; i++)
+            lines.push(buildEntryText(entries[i]))
         if (lines.length > 0)
             copyToClipboard(lines.join("\n"))
     }
@@ -4155,7 +4159,7 @@ Window {
         }
         keywordModel.append({ text: text, color: color, enabled: true, mode: mode })
         root.keywordRevision++
-        syncKeywordsToConfig()
+        scheduleKeywordSync()
     }
 
     function addFilter(text, filterType) {
@@ -4168,7 +4172,11 @@ Window {
     }
 
     // ── Config sync helpers ────────────────────────────────────
-    function syncKeywordsToConfig() {
+    // Qt.callLater 合併連續變更(比照 scheduleFilterSync):config 載入逐筆 append M 個
+    // keyword 只觸發一次 C++ 全量 hlColor 重算,而非 M 次
+    function scheduleKeywordSync() { Qt.callLater(syncKeywordsNow) }
+
+    function syncKeywordsNow() {
         var list = []
         for (var i = 0; i < keywordModel.count; i++) {
             var item = keywordModel.get(i)
@@ -4230,10 +4238,7 @@ Window {
         var toSend = data + endings[lineEndingCombo.currentIndex]
 
         if (serialManager.sendData(toSend, root.hexSendMode)) {
-            var ts = root.tsNow()
-            var displayData = root.hexSendMode ? data : data
-            addTerminalEntry(ts, displayData, "", "tx")
-            //sendInput.text = ""
+            addTerminalEntry(root.tsNow(), data, "", "tx")
         }
     }
 

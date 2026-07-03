@@ -39,7 +39,8 @@ signals:
     void reconnectingChanged();
     void rxBytesChanged();
     void txBytesChanged();
-    void dataReceived(const QString &timestamp, const QString &asciiData, const QString &hexData);
+    // rawData 為該行原始 bytes;hex 字串由消費端需要時才生成(避免高速路徑常駐 3 倍記憶體)
+    void dataReceived(const QString &timestamp, const QString &asciiData, const QByteArray &rawData);
     void errorOccurred(const QString &error);
     void reconnected();          // fires when auto-reconnect succeeds
     void connectionLost();       // fires when device unexpectedly disconnects

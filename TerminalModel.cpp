@@ -28,7 +28,7 @@ QVariant TerminalModel::data(const QModelIndex &index, int role) const
     switch (role) {
     case TimestampRole:  return e.timestamp;
     case MsgTextRole:    return e.msgText;
-    case HexDataRole:    return e.hexData;
+    case HexDataRole:    return hexString(e);
     case TypeRole:       return e.type;
     case EntryIndexRole: return e.entryIndex;
     default:             return QVariant();
@@ -58,15 +58,18 @@ void TerminalModel::setMaxLines(int lines)
 void TerminalModel::appendEntry(const QString &timestamp, const QString &msgText,
                                 const QString &hexData, const QString &type)
 {
-    m_pending.append({ timestamp, msgText, hexData, type, 0 });
+    // QML 端傳入的是顯示用 hex 字串(通常為空),轉回原始 bytes 儲存
+    m_pending.append({ timestamp, msgText, QByteArray::fromHex(hexData.toLatin1()), type, 0 });
     if (!m_flushTimer.isActive())
         m_flushTimer.start();
 }
 
 void TerminalModel::appendRxLine(const QString &timestamp, const QString &asciiData,
-                                 const QString &hexData)
+                                 const QByteArray &rawData)
 {
-    appendEntry(timestamp, asciiData, hexData, QStringLiteral("rx"));
+    m_pending.append({ timestamp, asciiData, rawData, QStringLiteral("rx"), 0 });
+    if (!m_flushTimer.isActive())
+        m_flushTimer.start();
 }
 
 void TerminalModel::flushPending()
@@ -77,8 +80,10 @@ void TerminalModel::flushPending()
     QList<TerminalEntry> batch;
     batch.swap(m_pending);
 
+    // QVariantMap payload 只在 QML 有 log sink 時才建(未錄製時省高速路徑的跨界配置)
     QVariantList appendedMaps;
-    appendedMaps.reserve(batch.size());
+    if (m_logSinkActive)
+        appendedMaps.reserve(batch.size());
 
     // matchesFilter 每次都 toLower 配置,結果存表避免第二輪重算
     QVarLengthArray<bool, 256> visible(batch.size());
@@ -90,7 +95,8 @@ void TerminalModel::flushPending()
         visible[i] = matchesFilter(e);
         if (visible[i])
             ++visibleAdds;
-        appendedMaps.append(entryToMap(e));
+        if (m_logSinkActive)
+            appendedMaps.append(entryToMap(e));
     }
 
     if (visibleAdds > 0) {
@@ -111,7 +117,17 @@ void TerminalModel::flushPending()
 
     trimIfNeeded();
 
-    emit entriesAppended(appendedMaps);
+    if (!appendedMaps.isEmpty())
+        emit entriesAppended(appendedMaps);
+    emit entriesFlushed();
+}
+
+void TerminalModel::setLogSinkActive(bool active)
+{
+    if (m_logSinkActive == active)
+        return;
+    m_logSinkActive = active;
+    emit logSinkActiveChanged();
 }
 
 void TerminalModel::trimIfNeeded()
@@ -215,7 +231,7 @@ QVariantList TerminalModel::search(const QString &query, bool isRegex, bool hexM
 
     for (int row = 0; row < m_visible.size(); ++row) {
         const TerminalEntry &e = m_all.at(m_visible.at(row));
-        const QString &text = (hexMode && !e.hexData.isEmpty()) ? e.hexData : e.msgText;
+        const QString text = (hexMode && !e.raw.isEmpty()) ? hexString(e) : e.msgText;
         if (re.match(text).hasMatch())
             matches.append(row);
     }
@@ -251,11 +267,37 @@ QVariantList TerminalModel::allEntries() const
     return result;
 }
 
+QVariantList TerminalModel::visibleEntries() const
+{
+    QVariantList result;
+    result.reserve(m_visible.size());
+    for (int idx : m_visible)
+        result.append(entryToMap(m_all.at(idx)));
+    return result;
+}
+
+int TerminalModel::rowForEntryIndex(int entryIndex) const
+{
+    // m_visible 依 row 遞增,對應的 entryIndex 亦嚴格遞增 → 可二分搜尋
+    int lo = 0, hi = m_visible.size() - 1;
+    while (lo <= hi) {
+        const int mid = (lo + hi) / 2;
+        const int v = m_all.at(m_visible.at(mid)).entryIndex;
+        if (v == entryIndex)
+            return mid;
+        if (v < entryIndex)
+            lo = mid + 1;
+        else
+            hi = mid - 1;
+    }
+    return -1;
+}
+
 QString TerminalModel::computeHlColor(const TerminalEntry &e) const
 {
     if (m_hlKeywords.isEmpty())
         return QString();
-    const QString text = ((m_hlHexMode && !e.hexData.isEmpty()) ? e.hexData : e.msgText).toLower();
+    const QString text = ((m_hlHexMode && !e.raw.isEmpty()) ? hexString(e) : e.msgText).toLower();
     for (const HlKeyword &kw : m_hlKeywords) {
         if (text.contains(kw.textLower))
             return kw.color;
@@ -313,12 +355,18 @@ QVariantList TerminalModel::entryIndicesInRange(int loRow, int hiRow) const
     return result;
 }
 
+QString TerminalModel::hexString(const TerminalEntry &e)
+{
+    return e.raw.isEmpty() ? QString()
+                           : QString::fromLatin1(e.raw.toHex(' ')).toUpper();
+}
+
 QVariantMap TerminalModel::entryToMap(const TerminalEntry &e)
 {
     return {
         { QStringLiteral("timestamp"),  e.timestamp },
         { QStringLiteral("msgText"),    e.msgText },
-        { QStringLiteral("hexData"),    e.hexData },
+        { QStringLiteral("hexData"),    hexString(e) },
         { QStringLiteral("type"),       e.type },
         { QStringLiteral("entryIndex"), e.entryIndex },
     };

@@ -313,9 +313,7 @@ void SerialPortManager::emitLine(const QByteArray &lineData)
             asciiStr += QLatin1Char('.');
     }
 
-    QString hexStr = QString::fromLatin1(lineData.toHex(' ')).toUpper();
-
-    emit dataReceived(timestamp, asciiStr, hexStr);
+    emit dataReceived(timestamp, asciiStr, lineData);
 }
 
 void SerialPortManager::handleError(QSerialPort::SerialPortError error)

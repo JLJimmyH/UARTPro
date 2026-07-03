@@ -43,7 +43,7 @@ public slots:
     void shutdown();   // Ctrl+C / SIGTERM
 
 private slots:
-    void onLine(const QString &timestamp, const QString &asciiData, const QString &hexData);
+    void onLine(const QString &timestamp, const QString &asciiData, const QByteArray &rawData);
     void onTimeout();
     void onConnectionLost();
     void onReconnected();

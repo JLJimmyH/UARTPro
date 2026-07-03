@@ -79,9 +79,15 @@ void HeadlessRunner::shutdown()
 }
 
 void HeadlessRunner::onLine(const QString &timestamp, const QString &asciiData,
-                            const QString &hexData)
+                            const QByteArray &rawData)
 {
     Q_UNUSED(timestamp)
+
+    // hex 字串只在 jsonl 記錄或 stdout 串流需要時生成一次
+    const bool needHex = m_opts.streamStdout
+        || (m_logger.isLogging() && m_opts.format == QLatin1String("jsonl"));
+    const QString hexData = (needHex && !rawData.isEmpty())
+        ? QString::fromLatin1(rawData.toHex(' ')).toUpper() : QString();
 
     if (m_logger.isLogging()) {
         if (m_opts.format == QLatin1String("jsonl")) {
