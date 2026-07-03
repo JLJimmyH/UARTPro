@@ -23,13 +23,16 @@
 #ifdef Q_OS_WIN
 #include <windows.h>
 #include <dwmapi.h>
+#include <dbt.h>
+#include <functional>
 #pragma comment(lib, "dwmapi.lib")
 
 class WindowsFramelessEventFilter : public QAbstractNativeEventFilter
 {
 public:
-    explicit WindowsFramelessEventFilter(HWND hwnd)
-        : m_hwnd(hwnd) {}
+    explicit WindowsFramelessEventFilter(HWND hwnd,
+                                         std::function<void()> onDeviceChange = {})
+        : m_hwnd(hwnd), m_onDeviceChange(std::move(onDeviceChange)) {}
 
     bool nativeEventFilter(const QByteArray &eventType, void *message, qintptr *result) override
     {
@@ -48,11 +51,18 @@ public:
             return true;
         }
 
+        // USB 轉接器熱插拔 → 自動重掃 port 清單(不消耗事件,照常傳遞)
+        if (msg->message == WM_DEVICECHANGE && msg->wParam == DBT_DEVNODES_CHANGED
+            && m_onDeviceChange) {
+            m_onDeviceChange();
+        }
+
         return false;
     }
 
 private:
     HWND m_hwnd = nullptr;
+    std::function<void()> m_onDeviceChange;
 };
 
 static void enableSnapForFramelessWindow(HWND hwnd)
@@ -313,7 +323,16 @@ int main(int argc, char *argv[])
     if (window) {
         HWND hwnd = reinterpret_cast<HWND>(window->winId());
         enableSnapForFramelessWindow(hwnd);
-        framelessEventFilter = std::make_unique<WindowsFramelessEventFilter>(hwnd);
+
+        // WM_DEVICECHANGE 會連發數則,300ms 合併後重掃一次
+        QTimer *portRescanTimer = new QTimer(&app);
+        portRescanTimer->setSingleShot(true);
+        portRescanTimer->setInterval(300);
+        QObject::connect(portRescanTimer, &QTimer::timeout,
+                         &serialManager, &SerialPortManager::refreshPorts);
+
+        framelessEventFilter = std::make_unique<WindowsFramelessEventFilter>(
+            hwnd, [portRescanTimer]() { portRescanTimer->start(); });
         app.installNativeEventFilter(framelessEventFilter.get());
 
         // 啟動白窗修正:先用 DWM cloak 讓視窗對桌面合成器隱形(setVisible 後仍會 render),

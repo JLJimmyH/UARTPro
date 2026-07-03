@@ -11,7 +11,10 @@ Window {
     minimumHeight: 56
     // 以隱藏建立,待 C++ 套好無邊框樣式後由 main.cpp setVisible(true),避免啟動白框閃爍
     visible: false
-    title: appName + " // SERIAL TERMINAL v" + appVersion
+    // 連線時帶 port@baud:多實例監多 UART 時 Alt-Tab / 工作列才分得出誰是誰
+    title: serialManager.connected
+        ? (portCombo.currentText.split(" - ")[0] + " @ " + baudCombo.currentText + " — " + appName)
+        : appName + " // SERIAL TERMINAL v" + appVersion
     color: colorBg
     flags: Qt.FramelessWindowHint | Qt.Window | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint
 
@@ -221,6 +224,11 @@ Window {
     // 雙擊 chip 編輯回填時暫存原色彩/模式,讓重新加入保留設定
     property string _pendingKwColor: ""
     property string _pendingKwMode: ""
+
+    // ── Send history ──────────────────────────────────────────────
+    property var sendHistory: []        // ↑↓ 回叫,持久化於 config
+    property int sendHistoryPos: -1     // -1 = 不在歷史巡覽中
+    property string _userSelectedPort: ""   // 熱插拔重掃後還原用
 
     // ── Search State ──────────────────────────────────────────────
     property bool searchBarVisible: false
@@ -557,6 +565,70 @@ Window {
             }
             background: Rectangle {
                 color: parent.hovered ? root.colorMuted : "transparent"
+            }
+        }
+        MenuSeparator {
+            contentItem: Rectangle {
+                implicitWidth: 200; implicitHeight: 1
+                color: root.colorBorder
+            }
+        }
+        // 就地建立 highlight / filter:優先用反白選取文字,否則整行內容
+        MenuItem {
+            text: "  + Highlight"
+            enabled: root.contextSelectionText() !== ""
+            onTriggered: {
+                var t = root.contextSelectionText().trim()
+                if (t !== "") addKeyword(t)
+            }
+            contentItem: Text {
+                text: parent.text
+                font.family: root.fontMono; font.pixelSize: 11
+                font.letterSpacing: 1
+                color: parent.enabled ? "#ffaa00" : root.colorMutedFg
+            }
+            background: Rectangle {
+                color: parent.hovered ? root.colorMuted : "transparent"
+            }
+        }
+        MenuItem {
+            text: "  + Filter: Has"
+            enabled: root.contextSelectionText() !== ""
+            onTriggered: {
+                var t = root.contextSelectionText().trim()
+                if (t !== "") addFilter(t, "include")
+            }
+            contentItem: Text {
+                text: parent.text
+                font.family: root.fontMono; font.pixelSize: 11
+                font.letterSpacing: 1
+                color: parent.enabled ? root.colorAccent : root.colorMutedFg
+            }
+            background: Rectangle {
+                color: parent.hovered ? root.colorMuted : "transparent"
+            }
+        }
+        MenuItem {
+            text: "  + Filter: Ban"
+            enabled: root.contextSelectionText() !== ""
+            onTriggered: {
+                var t = root.contextSelectionText().trim()
+                if (t !== "") addFilter(t, "exclude")
+            }
+            contentItem: Text {
+                text: parent.text
+                font.family: root.fontMono; font.pixelSize: 11
+                font.letterSpacing: 1
+                color: parent.enabled ? root.colorDestructive : root.colorMutedFg
+            }
+            background: Rectangle {
+                color: parent.hovered ? root.colorMuted : "transparent"
+            }
+        }
+        MenuSeparator {
+            contentItem: Rectangle {
+                implicitWidth: 200; implicitHeight: 1
+                color: root.colorBorder
             }
         }
         MenuItem {
@@ -1214,6 +1286,8 @@ Window {
                             cardColor: root.colorCard; borderColor: root.colorBorder
                             fgColor: root.colorFg; bgColor: root.colorBg
                             mutedFgColor: root.colorMutedFg; mutedColor: root.colorMuted; uiScale: root.uiScale
+                            // 記住使用者親選的 port,熱插拔重掃後還原選取
+                            onActivated: root._userSelectedPort = currentText.split(" - ")[0].trim()
                         }
 
                         // BAUD RATE
@@ -2772,7 +2846,9 @@ Window {
                                     var row = rowAtY(mouse.y)
                                     if (row >= 0) {
                                         var entry = terminalModel.get(row)
-                                        if (entry) root.lastClickedRowText = String(entry.msgText)
+                                        root.lastClickedRowText = entry ? String(entry.msgText) : ""
+                                    } else {
+                                        root.lastClickedRowText = ""   // 空白區右鍵不留 stale 內容
                                     }
                                     terminalContextMenu.popup()
                                     mouse.accepted = true
@@ -3160,7 +3236,7 @@ Window {
                                 font.pixelSize: 10
                             }
 
-                            // Input field
+                            // Input field(未連線也可先打字,重連空檔預先備好命令)
                             CyberTextField {
                                 id: sendInput
                                 Layout.fillWidth: true
@@ -3168,10 +3244,11 @@ Window {
                                 accentColor: root.colorAccent
                                 cardColor: root.colorCard; borderColor: root.colorBorder
                                 bgColor: root.colorBg; mutedFgColor: root.colorMutedFg
-                                enabled: serialManager.connected
 
                                 Keys.onReturnPressed: sendCurrentData()
                                 Keys.onEnterPressed: sendCurrentData()
+                                Keys.onUpPressed: root.sendHistoryUp()
+                                Keys.onDownPressed: root.sendHistoryDown()
                             }
 
                             // Line ending selector
@@ -3475,6 +3552,7 @@ Window {
                     { key: "Ctrl + Shift + 0", desc: "Reset UI scale" },
                     { key: "Space",            desc: "Toggle connection" },
                     { key: "Enter",            desc: "Send / Search / Add filter" },
+                    { key: "Up / Down",        desc: "Send history (in send box)" },
                     { key: "Double-click chip", desc: "Edit keyword / filter" },
                     { key: "Right-click",      desc: "Context menu" }
                 ]
@@ -3499,6 +3577,42 @@ Window {
                     }
                 }
             }
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // TOAST(短暫操作回饋,不進資料流)
+    // ══════════════════════════════════════════════════════════════
+    Rectangle {
+        id: toastBox
+        property string message: ""
+        z: 500
+        visible: opacity > 0
+        opacity: 0
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 96
+        width: toastText.implicitWidth + 32
+        height: 34
+        radius: 4
+        color: root.colorCard
+        border.color: root.colorAccent
+        border.width: 1
+        Behavior on opacity { NumberAnimation { duration: 150 } }
+
+        Text {
+            id: toastText
+            anchors.centerIn: parent
+            text: toastBox.message
+            font.family: root.fontMono
+            font.pixelSize: 11
+            font.letterSpacing: 1
+            color: root.colorAccent
+        }
+        Timer {
+            id: toastTimer
+            interval: 1600
+            onTriggered: toastBox.opacity = 0
         }
     }
 
@@ -3567,6 +3681,18 @@ Window {
         function onReconnected() {
             var ts = root.tsNow()
             addTerminalEntry(ts, "Reconnected successfully", "", "system")
+        }
+
+        // 熱插拔自動重掃(main.cpp WM_DEVICECHANGE)後,還原使用者親選的 port
+        function onAvailablePortsChanged() {
+            if (root._userSelectedPort === "") return
+            var list = serialManager.availablePorts
+            for (var i = 0; i < list.length; i++) {
+                if (list[i].split(" - ")[0].trim() === root._userSelectedPort) {
+                    portCombo.currentIndex = i
+                    return
+                }
+            }
         }
 
         // RX 資料已在 C++ 直連 terminalModel,QML 不再逐行處理
@@ -4065,6 +4191,19 @@ Window {
         return terminalModel.rowForEntryIndex(entryIdx)   // C++ 二分搜尋
     }
 
+    // 右鍵選單建 highlight/filter 的來源文字:優先單行反白選取,否則右鍵那一行的內容
+    function contextSelectionText() {
+        if (root.activeEditRow >= 0) {
+            var item = terminalView.itemAtIndex(getModelIndexForEntry(root.activeEditRow))
+            if (item) {
+                var et = findEditText(item)
+                if (et && et.selectedText.length > 0)
+                    return String(et.selectedText)
+            }
+        }
+        return root.lastClickedRowText
+    }
+
     function copySelectedEntries() {
         var lines = []
         var entries = terminalModel.allEntries()
@@ -4099,15 +4238,13 @@ Window {
         return line
     }
 
+    // 複製回饋走 toast:不進資料流,錄製中的 log 不再被 "Copied to clipboard" 汙染
     function copyToClipboard(text) {
         clipHelper.text = text
         clipHelper.selectAll()
         clipHelper.copy()
         clipHelper.text = ""
-
-        // Show feedback in terminal
-        var ts = root.tsNow()
-        addTerminalEntry(ts, "Copied to clipboard (" + text.split("\n").length + " lines)", "", "system")
+        showToast("COPIED — " + text.split("\n").length + " lines")
     }
 
     function copyToClipboardInline(text) {
@@ -4115,9 +4252,13 @@ Window {
         clipHelper.selectAll()
         clipHelper.copy()
         clipHelper.text = ""
+        showToast("COPIED — " + text.length + " chars")
+    }
 
-        var ts = root.tsNow()
-        addTerminalEntry(ts, "Copied to clipboard (" + text.length + " chars)", "", "system")
+    function showToast(msg) {
+        toastBox.message = msg
+        toastBox.opacity = 1
+        toastTimer.restart()
     }
 
     function copyAllEntries() {
@@ -4197,6 +4338,8 @@ Window {
         root.showLineNumbers = configManager.showLineNumbers
         root.colorNumbers = configManager.colorNumbers
         root.maxBufferLines = configManager.maxBufferLines
+        root.sendHistory = configManager.sendHistory
+        root.sendHistoryPos = -1
 
         // Sync lineLimitCombo index
         var bufIdx = root.lineLimitOptions.indexOf(root.maxBufferLines)
@@ -4232,6 +4375,10 @@ Window {
     function sendCurrentData() {
         var data = sendInput.text
         if (data.length === 0) return
+        if (!serialManager.connected) {
+            addTerminalEntry(root.tsNow(), "Not connected — select a port and CONNECT first", "", "error")
+            return
+        }
 
         // Append line ending
         var endings = ["", "\r", "\n", "\r\n"]
@@ -4239,6 +4386,43 @@ Window {
 
         if (serialManager.sendData(toSend, root.hexSendMode)) {
             addTerminalEntry(root.tsNow(), data, "", "tx")
+            pushSendHistory(data)
+            // 保留文字但整段反白:直接打字即覆蓋,Enter 可重送
+            sendInput.selectAll()
+        }
+    }
+
+    // ── Send history(↑↓ 回叫,存 config 跨啟動保留)──────────────
+    function pushSendHistory(cmd) {
+        var h = root.sendHistory.slice()
+        if (h.length === 0 || h[h.length - 1] !== cmd) {
+            h.push(cmd)
+            if (h.length > 50) h.shift()
+            root.sendHistory = h
+            configManager.sendHistory = h
+        }
+        root.sendHistoryPos = -1
+    }
+
+    function sendHistoryUp() {
+        if (root.sendHistory.length === 0) return
+        if (root.sendHistoryPos < 0)
+            root.sendHistoryPos = root.sendHistory.length - 1
+        else if (root.sendHistoryPos > 0)
+            root.sendHistoryPos--
+        sendInput.text = root.sendHistory[root.sendHistoryPos]
+        sendInput.cursorPosition = sendInput.text.length
+    }
+
+    function sendHistoryDown() {
+        if (root.sendHistoryPos < 0) return
+        root.sendHistoryPos++
+        if (root.sendHistoryPos >= root.sendHistory.length) {
+            root.sendHistoryPos = -1
+            sendInput.text = ""
+        } else {
+            sendInput.text = root.sendHistory[root.sendHistoryPos]
+            sendInput.cursorPosition = sendInput.text.length
         }
     }
 

@@ -108,6 +108,7 @@ void ConfigManager::loadInternal(const QString &path)
     setColorNumbers(root.value(QStringLiteral("colorNumbers")).toBool(true));
     setMaxBufferLines(root.value(QStringLiteral("maxBufferLines")).toInt(50000));
     setLastLogDir(root.value(QStringLiteral("lastLogDir")).toString());
+    setSendHistory(root.value(QStringLiteral("sendHistory")).toVariant().toStringList());
 
     auto readArray = [](const QJsonArray &arr, const QString &arrayType) -> QVariantList {
         QVariantList result;
@@ -205,6 +206,7 @@ void ConfigManager::saveToFile()
     root[QStringLiteral("colorNumbers")] = m_colorNumbers;
     root[QStringLiteral("maxBufferLines")] = m_maxBufferLines;
     root[QStringLiteral("lastLogDir")] = m_lastLogDir;
+    root[QStringLiteral("sendHistory")] = QJsonArray::fromStringList(m_sendHistory);
 
     auto writeArray = [](const QVariantList &list, const QString &arrayType) -> QJsonArray {
         QJsonArray arr;
@@ -262,6 +264,7 @@ bool ConfigManager::showLineNumbers() const { return m_showLineNumbers; }
 bool ConfigManager::colorNumbers() const { return m_colorNumbers; }
 int ConfigManager::maxBufferLines() const { return m_maxBufferLines; }
 QString ConfigManager::lastLogDir() const { return m_lastLogDir; }
+QStringList ConfigManager::sendHistory() const { return m_sendHistory; }
 QString ConfigManager::configFilePath() const { return m_configFilePath; }
 
 // ── Setters ─────────────────────────────────────────
@@ -280,6 +283,17 @@ void ConfigManager::setLastLogDir(const QString &value)
     if (m_lastLogDir == value) return;
     m_lastLogDir = value;
     emit lastLogDirChanged();
+    scheduleSave();
+}
+
+void ConfigManager::setSendHistory(const QStringList &value)
+{
+    QStringList capped = value;
+    while (capped.size() > 50)
+        capped.removeFirst();
+    if (m_sendHistory == capped) return;
+    m_sendHistory = capped;
+    emit sendHistoryChanged();
     scheduleSave();
 }
 

@@ -21,6 +21,7 @@ class ConfigManager : public QObject
     Q_PROPERTY(bool colorNumbers READ colorNumbers WRITE setColorNumbers NOTIFY colorNumbersChanged)
     Q_PROPERTY(int maxBufferLines READ maxBufferLines WRITE setMaxBufferLines NOTIFY maxBufferLinesChanged)
     Q_PROPERTY(QString lastLogDir READ lastLogDir WRITE setLastLogDir NOTIFY lastLogDirChanged)
+    Q_PROPERTY(QStringList sendHistory READ sendHistory WRITE setSendHistory NOTIFY sendHistoryChanged)
     Q_PROPERTY(QString configFilePath READ configFilePath NOTIFY configFilePathChanged)
 
 public:
@@ -38,6 +39,7 @@ public:
     bool colorNumbers() const;
     int maxBufferLines() const;
     QString lastLogDir() const;
+    QStringList sendHistory() const;
     QString configFilePath() const;
 
     void setUiScale(qreal value);
@@ -51,6 +53,7 @@ public:
     void setColorNumbers(bool value);
     void setMaxBufferLines(int value);
     void setLastLogDir(const QString &value);
+    void setSendHistory(const QStringList &value);
 
     Q_INVOKABLE QVariantList keywords() const;
     Q_INVOKABLE void setKeywords(const QVariantList &list);
@@ -74,6 +77,7 @@ signals:
     void colorNumbersChanged();
     void maxBufferLinesChanged();
     void lastLogDirChanged();
+    void sendHistoryChanged();
     void configFilePathChanged();
     void configLoaded();
 
@@ -96,6 +100,7 @@ private:
     bool m_colorNumbers = true;
     int m_maxBufferLines = 50000;
     QString m_lastLogDir;
+    QStringList m_sendHistory;   // 送出命令歷史(↑↓ 回叫),上限 50 筆
     QString m_configFilePath;
 
     QVariantList m_keywords;
