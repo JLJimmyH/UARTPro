@@ -6,7 +6,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 6.2 COMPONENTS Quick QuickControls2 SerialPort QuickDialogs2 REQUIRED)
+find_package(Qt6 6.2 COMPONENTS Quick QuickControls2 SerialPort QuickDialogs2 Network REQUIRED)
 qt_policy(SET QTP0001 NEW)
 
 qt_add_executable(${PROJECT_NAME}
@@ -21,6 +21,10 @@ qt_add_executable(${PROJECT_NAME}
     TerminalModel.cpp
     HeadlessRunner.h
     HeadlessRunner.cpp
+    IpcServer.h
+    IpcServer.cpp
+    AttachClient.h
+    AttachClient.cpp
     version.h
     app.rc
 )
@@ -44,4 +48,4 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
 )
 
 target_link_libraries(${PROJECT_NAME}
-    PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::SerialPort Qt6::QuickDialogs2)
+    PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::SerialPort Qt6::QuickDialogs2 Qt6::Network)

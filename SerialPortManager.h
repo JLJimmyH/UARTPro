@@ -26,6 +26,9 @@ public:
     bool isReconnecting() const;
     qint64 rxBytes() const;
     qint64 txBytes() const;
+    // 連線中或重連中的 port/baud(IPC status 與 --attach --port 定址用),否則空/0
+    QString activePortName() const;
+    int activeBaudRate() const;
 
     Q_INVOKABLE void refreshPorts();
     Q_INVOKABLE bool connectToPort(const QString &portName, int baudRate,

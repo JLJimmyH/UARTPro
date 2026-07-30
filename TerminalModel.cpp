@@ -80,9 +80,10 @@ void TerminalModel::flushPending()
     QList<TerminalEntry> batch;
     batch.swap(m_pending);
 
-    // QVariantMap payload 只在 QML 有 log sink 時才建(未錄製時省高速路徑的跨界配置)
+    // QVariantMap payload 只在有消費端(QML log sink 或 IPC 訂閱)時才建
+    const bool wantMaps = m_logSinkActive || m_sinkRefs > 0;
     QVariantList appendedMaps;
-    if (m_logSinkActive)
+    if (wantMaps)
         appendedMaps.reserve(batch.size());
 
     // matchesFilter 每次都 toLower 配置,結果存表避免第二輪重算
@@ -95,7 +96,7 @@ void TerminalModel::flushPending()
         visible[i] = matchesFilter(e);
         if (visible[i])
             ++visibleAdds;
-        if (m_logSinkActive)
+        if (wantMaps)
             appendedMaps.append(entryToMap(e));
     }
 
@@ -264,6 +265,16 @@ QVariantList TerminalModel::allEntries() const
     result.reserve(m_all.size());
     for (const TerminalEntry &e : m_all)
         result.append(entryToMap(e));
+    return result;
+}
+
+QVariantList TerminalModel::tailEntries(int count) const
+{
+    const int n = qBound(0, count, static_cast<int>(m_all.size()));
+    QVariantList result;
+    result.reserve(n);
+    for (int i = m_all.size() - n; i < m_all.size(); ++i)
+        result.append(entryToMap(m_all.at(i)));
     return result;
 }
 

@@ -15,19 +15,22 @@ UARTPro 除了 GUI 串列埠終端機之外,內建可被 script / CI / AI agent(
 | `--headless` | CLI | 無 UI 模式,需搭配 `--port` |
 | `--stdout` | headless | 每收到一行即印一筆 JSONL 到 stdout(即時 flush,可 pipe) |
 | `--expect <regex>` | headless | 收到符合 regex 的行 → exit 0 |
-| `--expect-fail <regex>` | headless | 收到符合 regex 的行 → exit 5(優先於 `--expect`) |
-| `--timeout <seconds>` | headless | 超過秒數未命中 → exit 4 |
+| `--expect-fail <regex>` | headless / attach | 收到符合 regex 的行 → exit 5(優先於 `--expect`) |
+| `--timeout <seconds>` | headless / attach | 超過秒數未命中 → exit 4 |
+| `--attach <動詞> [...]` | attach | 連上「執行中的 UARTPro 實例」下命令(共用其連線),詳見下方「Attach 模式」 |
+| `--pid <N>` | attach | 定址:指定目標實例的 PID |
 
-## Exit codes(`--headless` / `--list-ports`)
+## Exit codes(`--headless` / `--list-ports` / `--attach`)
 
 | Code | 意義 |
 |------|------|
-| 0 | 正常結束 / `--expect` 命中 / Ctrl+C 手動中斷 |
-| 2 | port 開啟失敗,或 `--headless` 缺 `--port` |
+| 0 | 正常結束 / `--expect` 或 attach `expect` 命中 / Ctrl+C 手動中斷 |
+| 2 | port 開啟失敗,或 `--headless` 缺 `--port`;attach 的 `connect`/`send` 失敗 |
 | 3 | `--record` 檔案開啟失敗 |
 | 4 | `--timeout` 逾時 |
 | 5 | `--expect-fail` 命中 |
-| 6 | 參數無效:`--baud`/`--timeout` 非正整數、`--expect`/`--expect-fail` regex 無效(stderr 有 JSON 錯誤細節) |
+| 6 | 參數無效:`--baud`/`--timeout` 非正整數、regex 無效、attach 動詞未知(stderr 有 JSON 錯誤細節) |
+| 7 | attach 無法定位目標實例(無實例在跑 / 多實例但未指定 / 指定條件無匹配) |
 
 GUI 模式維持原行為:自動連線失敗只顯示在畫面上,程式不退出。
 
@@ -98,6 +101,77 @@ echo "exit=$?"   # 0=開機成功, 5=開機失敗, 4=逾時
 ./bin/UARTPro.exe --port COM3 --baud 921600 --record session.log
 ```
 
+## Attach 模式(共用執行中實例的連線)
+
+Windows 的 COM port 是獨占開啟:GUI 開著時,第二個 process(headless 或其他工具)開不了同一個 port。Attach 模式讓 agent 直接對「執行中的 UARTPro 實例」下命令——人看 UI、agent 透過 IPC 共用同一條連線。人與 agent **對等**(誰後下命令誰生效,不互鎖),代價由**可視化**支付:agent 的動作在 UI 以 system 行 + toast 呈現,terminal 標頭顯示 `[AGENT]` 徽章。
+
+### IPC 介面
+
+每個 UARTPro 實例(GUI 與 headless 都算)啟動時建立 named pipe `\\.\pipe\UARTPro.<pid>`(QLocalServer;協議為 NDJSON,一行一個 JSON object)。`--attach` 是同一顆 exe 內建的 client,一般情況不需要直接碰 pipe;非 Qt 工具也可以自行連 pipe 說同一套協議(見文末 wire protocol)。
+
+### 定址(多實例)
+
+同時開多個 UARTPro 是常態,`--attach` 依下列優先序挑目標實例:
+
+1. `--pid <N>` — 指定 PID,最明確
+2. `--port <COMx>` — 挑「目前採著 COMx」的實例
+3. 都沒給 — 恰好一個實例在跑就用它;0 個或多個 → exit 7(stderr 有 JSON 錯誤細節)
+
+`--attach list` 枚舉所有實例,agent 可先看再挑。
+
+### 動詞
+
+| 動詞 | 參數 | 說明 |
+|------|------|------|
+| `list` | — | 枚舉執行中實例(JSON array),不需定址 |
+| `status` | — | 目標實例狀態(JSON object:pid/mode/port/baud/connected/reconnecting/rxBytes/txBytes/totalLines/version) |
+| `connect` | `<COMx> [baud]` | 要求實例開啟連線(8N1;baud 預設 115200) |
+| `disconnect` | — | 要求實例斷線 |
+| `send` | `<data> [--hex] [--eol none\|cr\|lf\|crlf]` | 送出資料;預設附 `crlf`;`--hex` 時 `<data>` 為 hex 字串(如 `"01 A0 FF"`)且不附行尾 |
+| `tail` | `[N]` | 最近 N 行(預設 50;取原始資料,不受 UI filter 影響),以 JSONL 印出 |
+| `subscribe` | — | 即時串流之後的每一行(JSONL),Ctrl+C 結束 |
+| `expect` | `<regex> [--expect-fail <regex>] [--timeout <sec>]` | 阻塞等待命中:`<regex>` 命中 exit 0、`--expect-fail` 命中 exit 5、逾時 exit 4 |
+
+### JSONL 行格式(tail / subscribe / expect)
+
+`{"ts":"yyyy-MM-dd HH:mm:ss.zzz","idx":N,"type":"rx|tx|system|error","ascii":"...","hex":"..."}`
+
+`idx` 為實例內全域遞增的 entry index(CLEAR 後歸零),同一實例內可當增量讀取的游標。
+
+### 範例
+
+```bash
+# agent 探索環境
+./bin/UARTPro.exe --attach list
+# [{"pid":1234,"mode":"gui","port":"COM4","baud":921600,"connected":true,...}]
+
+# 人在看 COM4 的 UI,agent 直接下測試命令並等結果(閉環)
+./bin/UARTPro.exe --attach --port COM4 send "reboot"
+./bin/UARTPro.exe --attach --port COM4 expect "Boot OK" --expect-fail "panic|assert" --timeout 15
+
+# 撈最近 200 行給 LLM 分析(不用先叫人存檔)
+./bin/UARTPro.exe --attach --port COM4 tail 200 > snapshot.jsonl
+
+# 完全控制:要求該實例換連到另一個 port
+./bin/UARTPro.exe --attach --pid 1234 connect COM7 115200
+```
+
+### Wire protocol(自行實作 client 時)
+
+request 一行一個 JSON object:
+
+```json
+{"cmd":"status"}
+{"cmd":"connect","port":"COM4","baud":921600}
+{"cmd":"disconnect"}
+{"cmd":"send","data":"reboot","hex":false,"eol":"crlf"}
+{"cmd":"tail","count":50}
+{"cmd":"subscribe"}
+{"cmd":"expect","pattern":"Boot OK","failPattern":"panic","timeoutSec":15}
+```
+
+response 為 `{"ok":true,...}` 或 `{"ok":false,"error":"..."}`;`tail` 的 ok 之後跟著 JSONL 行、最後一行 `{"done":true}`;`subscribe`/`expect` 的 ok 之後持續串流 JSONL;`expect` 結束時送 `{"result":"matched"|"failed"|"timeout","line":"..."}` 後斷線。一條連線進入 `subscribe`/`expect` 後即為串流專用,不再接受其他命令。
+
 ## Windows 等待行為注意
 
 UARTPro.exe 是 GUI subsystem 執行檔:
@@ -110,6 +184,5 @@ UARTPro.exe 是 GUI subsystem 執行檔:
 
 ## 未來規劃(設計草稿,尚未實作)
 
-1. **QLocalServer IPC**(named pipe `\\.\pipe\UARTPro`):GUI 與 headless 模式都開一個本機命令介面(NDJSON request/response:`connect` / `send` / `tail N` / `subscribe` / `status`),解決 Windows COM port 獨占——人看 UI、agent 透過 IPC 共用同一條連線。
-2. **MCP server wrapper**:獨立的 Python/Node thin wrapper,把 IPC 命令包成 MCP tools(`list_ports` / `connect` / `send` / `read_lines(since_seq)` / `wait_for_pattern(regex, timeout)`),在專案 `.mcp.json` 註冊後 Claude Code 即可直接操作串列埠。
-3. **Keyword 觸發器**:keyword schema 擴充 `action`(command / webhook),命中即執行,含 cooldown 防止 log 洗版時連續觸發。適合無人值守 overnight 測試。
+1. **MCP server wrapper**:把 attach 動詞包成 MCP tools(`list_ports` / `connect` / `send` / `read_lines` / `wait_for_pattern`),在專案 `.mcp.json` 註冊後 Claude Code 以 tools 形式操作。CLI `--attach` 已涵蓋全部能力,此項純屬人體工學。
+2. **Keyword 觸發器**:keyword schema 擴充 `action`(command / webhook),命中即執行,含 cooldown 防止 log 洗版時連續觸發。適合無人值守 overnight 測試(有了 attach `expect`,agent 自行監聽也可達成,優先度下降)。

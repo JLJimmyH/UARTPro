@@ -37,8 +37,9 @@ UARTPro — Qt 6 (6.2+) QML + C++ 無邊框 Windows 串列埠終端機。使用 
 - `--format <text|jsonl>` — `--record` 的格式
 - `--list-ports` — 印 JSON port 清單後退出(不開 UI)
 - `--headless` — 無 UI 模式,搭配 `--stdout` / `--expect` / `--expect-fail` / `--timeout`
+- `--attach <動詞>` — 連上執行中實例的 IPC 命令介面(`list`/`status`/`connect`/`disconnect`/`send`/`tail`/`subscribe`/`expect`),定址用 `--pid`/`--port`;server 端在 [IpcServer.cpp](IpcServer.cpp)、client 端在 [AttachClient.cpp](AttachClient.cpp)
 
-headless / list-ports 的 exit codes、JSONL schema 與自動化工作流詳見 [AGENT_INTEGRATION.md](AGENT_INTEGRATION.md)。CLI 模式走 `QCoreApplication`(`runCli`),不載 QML。
+headless / list-ports / attach 的 exit codes、JSONL schema、attach wire protocol 與自動化工作流詳見 [AGENT_INTEGRATION.md](AGENT_INTEGRATION.md)。CLI 模式走 `QCoreApplication`(`runCli`),不載 QML。
 
 ## 架構
 

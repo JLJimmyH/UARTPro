@@ -18,6 +18,8 @@
 #include "ConfigManager.h"
 #include "TerminalModel.h"
 #include "HeadlessRunner.h"
+#include "IpcServer.h"
+#include "AttachClient.h"
 #include "version.h"
 
 #ifdef Q_OS_WIN
@@ -152,6 +154,16 @@ static void setupParser(QCommandLineParser &parser)
     parser.addOption({ QStringLiteral("timeout"),
                        QStringLiteral("Headless: exit 4 after this many seconds."),
                        QStringLiteral("seconds") });
+    parser.addOption({ QStringLiteral("attach"),
+                       QStringLiteral("Attach to a running instance: list|status|connect|disconnect|send|tail|subscribe|expect.") });
+    parser.addOption({ QStringLiteral("pid"),
+                       QStringLiteral("Attach: target instance by PID."),
+                       QStringLiteral("pid") });
+    parser.addOption({ QStringLiteral("hex"),
+                       QStringLiteral("Attach send: data is a hex byte string (e.g. \"01 A0 FF\").") });
+    parser.addOption({ QStringLiteral("eol"),
+                       QStringLiteral("Attach send: line ending appended (default crlf)."),
+                       QStringLiteral("none|cr|lf|crlf") });
 }
 
 // exit codes (headless / list-ports):
@@ -175,6 +187,9 @@ static int runCli(int argc, char *argv[], bool listPorts)
     QCommandLineParser parser;
     setupParser(parser);
     parser.process(app);
+
+    if (parser.isSet(QStringLiteral("attach")))
+        return runAttachClient(parser);
 
     if (listPorts) {
         QJsonArray arr;
@@ -252,7 +267,7 @@ int main(int argc, char *argv[])
     // CLI 模式不建 QGuiApplication / QML engine
     if (hasArg(argc, argv, "--list-ports"))
         return runCli(argc, argv, true);
-    if (hasArg(argc, argv, "--headless"))
+    if (hasArg(argc, argv, "--attach") || hasArg(argc, argv, "--headless"))
         return runCli(argc, argv, false);
 
     // 明確指定 High-DPI 取整策略(不依賴 Qt 版本預設),與 QML uiScale 幾何縮放關係見 QMLDesign.md
@@ -278,6 +293,10 @@ int main(int argc, char *argv[])
     QObject::connect(&serialManager, &SerialPortManager::dataReceived,
                      &terminalModel, &TerminalModel::appendRxLine);
 
+    // Agent attach 命令介面(\\.\pipe\UARTPro.<pid>),失敗不影響 GUI
+    IpcServer ipcServer(&serialManager, &terminalModel, QStringLiteral("gui"));
+    ipcServer.start();
+
     QString configPath = parser.isSet(QStringLiteral("config"))
         ? parser.value(QStringLiteral("config"))
         : configManager.defaultConfigPath();
@@ -299,6 +318,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("fileLogger"), &fileLogger);
     engine.rootContext()->setContextProperty(QStringLiteral("configManager"), &configManager);
     engine.rootContext()->setContextProperty(QStringLiteral("terminalModel"), &terminalModel);
+    engine.rootContext()->setContextProperty(QStringLiteral("ipcServer"), &ipcServer);
     engine.rootContext()->setContextProperty(QStringLiteral("appVersion"), QStringLiteral(APP_VERSION_STR));
     engine.rootContext()->setContextProperty(QStringLiteral("appName"), QStringLiteral(APP_NAME));
     engine.rootContext()->setContextProperty(QStringLiteral("cmdLinePort"),   cmdLinePort);

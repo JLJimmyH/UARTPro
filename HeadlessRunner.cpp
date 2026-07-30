@@ -15,6 +15,7 @@ static void printStderrJson(const QJsonObject &obj)
 HeadlessRunner::HeadlessRunner(const HeadlessOptions &opts, QObject *parent)
     : QObject(parent)
     , m_opts(opts)
+    , m_ipc(&m_serial, &m_model, QStringLiteral("headless"))
 {
     if (!m_opts.expectPattern.isEmpty())
         m_expect = QRegularExpression(m_opts.expectPattern);
@@ -28,6 +29,23 @@ HeadlessRunner::HeadlessRunner(const HeadlessOptions &opts, QObject *parent)
     connect(&m_serial, &SerialPortManager::connectionLost, this, &HeadlessRunner::onConnectionLost);
     connect(&m_serial, &SerialPortManager::reconnected, this, &HeadlessRunner::onReconnected);
     connect(&m_serial, &SerialPortManager::errorOccurred, this, &HeadlessRunner::onError);
+
+    // attach tail/subscribe 需要 entry 儲存;RX 直連 model(與 GUI 相同路徑)
+    connect(&m_serial, &SerialPortManager::dataReceived,
+            &m_model, &TerminalModel::appendRxLine);
+    // agent 經 IPC 送出的 TX 也寫進記錄檔(RX 由 onLine 涵蓋)
+    connect(&m_ipc, &IpcServer::agentSent, this,
+            [this](const QString &ts, const QString &ascii, const QString &hex) {
+        Q_UNUSED(ts)
+        if (!m_logger.isLogging())
+            return;
+        if (m_opts.format == QLatin1String("jsonl")) {
+            m_logger.logStructured(QStringLiteral("tx"), ascii, hex);
+        } else {
+            const QString iso = QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
+            m_logger.logLine(QStringLiteral("[") + iso + QStringLiteral("] TX> ") + ascii);
+        }
+    });
 }
 
 int HeadlessRunner::start()
@@ -67,6 +85,8 @@ int HeadlessRunner::start()
 
     if (m_opts.timeoutSec > 0)
         m_timeoutTimer.start(m_opts.timeoutSec * 1000);
+
+    m_ipc.start();   // pipe 開失敗不影響 headless 本體
 
     emitEvent(QStringLiteral("start"),
               m_opts.port + QStringLiteral(" @ ") + QString::number(m_opts.baud));

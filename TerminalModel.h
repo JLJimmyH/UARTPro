@@ -53,6 +53,12 @@ public:
     bool logSinkActive() const { return m_logSinkActive; }
     void setLogSinkActive(bool active);
 
+    // IPC 訂閱端的 entriesAppended 需求計數,與 QML 的 logSinkActive 各自獨立
+    void addEntrySinkRef() { ++m_sinkRefs; }
+    void removeEntrySinkRef() { if (m_sinkRefs > 0) --m_sinkRefs; }
+    // 最近 count 筆(不受 filter 影響),IPC tail 用
+    QVariantList tailEntries(int count) const;
+
     Q_INVOKABLE void appendEntry(const QString &timestamp, const QString &msgText,
                                  const QString &hexData, const QString &type);
     Q_INVOKABLE QVariantMap get(int row) const;
@@ -111,6 +117,7 @@ private:
     int m_maxLines = 50000;
     int m_nextIndex = 0;
     bool m_logSinkActive = false;
+    int m_sinkRefs = 0;
 };
 
 #endif // TERMINALMODEL_H

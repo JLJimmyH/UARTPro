@@ -6,6 +6,8 @@
 #include <QTimer>
 #include "SerialPortManager.h"
 #include "FileLogger.h"
+#include "TerminalModel.h"
+#include "IpcServer.h"
 
 // --headless 模式: 不載 QML,純錄製/串流/pattern 等待。
 // exit codes: 0=正常或 expect 命中, 2=port 開啟失敗, 3=record 開檔失敗,
@@ -57,6 +59,8 @@ private:
     HeadlessOptions m_opts;
     SerialPortManager m_serial;
     FileLogger m_logger;
+    TerminalModel m_model;    // attach tail/subscribe 的 entry 儲存
+    IpcServer m_ipc;          // agent attach 命令介面(headless 也開 pipe)
     QRegularExpression m_expect;
     QRegularExpression m_expectFail;
     QTimer m_timeoutTimer;

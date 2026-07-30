@@ -2194,6 +2194,24 @@ Window {
                                 }
                             }
 
+                            // Agent attach 中(IPC client 連著):對等仲裁的可視化之一
+                            Text {
+                                visible: ipcServer.agentClients > 0
+                                text: ipcServer.agentClients > 1
+                                      ? "[AGENT×" + ipcServer.agentClients + "]" : "[AGENT]"
+                                font.family: root.fontMono
+                                font.pixelSize: 10
+                                font.letterSpacing: 1
+                                font.bold: true
+                                color: root.colorAccent
+                                SequentialAnimation on opacity {
+                                    running: ipcServer.agentClients > 0
+                                    loops: Animation.Infinite
+                                    NumberAnimation { to: 0.4; duration: 800 }
+                                    NumberAnimation { to: 1.0; duration: 800 }
+                                }
+                            }
+
                             Text {
                                 visible: { root.selectionVersion; return Object.keys(root.selectedSet).length > 0 }
                                 text: { root.selectionVersion; return "[SEL " + Object.keys(root.selectedSet).length + "]" }
@@ -3702,6 +3720,12 @@ Window {
             if (!serialManager.reconnecting)
                 addTerminalEntry(ts, error, "", "error")
         }
+    }
+
+    Connections {
+        target: ipcServer
+        // agent 動作的即時提示;耐久紀錄由 C++ 端插入的 system 行承擔
+        function onAgentAction(text) { showToast(text) }
     }
 
     Connections {

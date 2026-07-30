@@ -98,6 +98,16 @@ void SerialPortManager::applyPortSettings()
     }
 }
 
+QString SerialPortManager::activePortName() const
+{
+    return (isConnected() || m_reconnecting) ? m_lastPortName : QString();
+}
+
+int SerialPortManager::activeBaudRate() const
+{
+    return (isConnected() || m_reconnecting) ? m_lastBaudRate : 0;
+}
+
 bool SerialPortManager::connectToPort(const QString &portName, int baudRate,
                                       int dataBits, int stopBits, int parity)
 {
