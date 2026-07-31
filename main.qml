@@ -189,6 +189,9 @@ Window {
     onHexDisplayModeChanged: {
         if (configManager) configManager.hexDisplayMode = hexDisplayMode
         scheduleKeywordSync()   // hlColor 比對來源(ascii/hex)跟著切換
+        // 搜尋比對來源同樣跟著切換,舊命中對新模式已不成立
+        if (searchBarVisible && searchQuery !== "")
+            performSearch()
     }
     onShowTimestampChanged: if (configManager) configManager.showTimestamp = showTimestamp
     onShowDateChanged: if (configManager) configManager.showDate = showDate
@@ -235,10 +238,11 @@ Window {
     property string searchQuery: ""
     property bool searchRegex: false
     property int searchCurrentIndex: -1
+    // 命中以 entryIndex 記錄(比照 selectedSet):row 會隨 append/trim/filter 位移,存 row 會錯標
     property var searchMatches: []
-    // delegate O(1) 查表用:searchMatches 的 { row: true } 版本 + 目前命中列
+    // delegate O(1) 查表用:searchMatches 的 { entryIndex: true } 版本 + 目前命中行
     property var searchMatchSet: ({})
-    property int searchCurrentRow: -1
+    property int searchCurrentEntry: -1
     property bool autoScrollBeforeSearch: true
     property bool helpPopupVisible: false
 
@@ -2615,12 +2619,13 @@ Window {
                                 property int searchMatchType: {
                                     // 0 = no match, 1 = other match, 2 = current match
                                     // O(1) 查表(searchMatchSet),取代對整個命中陣列的線性掃描
+                                    // key 是 entryIndex 而非 index:row 位移後才不會標到別行
                                     if (!root.searchBarVisible || root.searchMatches.length === 0)
                                         return 0
-                                    var idx = entryDelegate.index
-                                    if (idx === root.searchCurrentRow)
+                                    var ei = entryDelegate.entryIndex
+                                    if (ei === root.searchCurrentEntry)
                                         return 2
-                                    return root.searchMatchSet.hasOwnProperty(idx) ? 1 : 0
+                                    return root.searchMatchSet.hasOwnProperty(ei) ? 1 : 0
                                 }
 
                                 // Selection highlight background
@@ -3149,10 +3154,26 @@ Window {
                                   || (root.searchBarVisible && root.searchMatches.length > 0)
 
                             property var kwMarkers: []
+                            // 搜尋命中存 entryIndex,畫標記要 row;row 隨 append/trim 位移,故需重算快照
+                            property var searchRows: []
+                            property int searchCurRow: -1
+
+                            function refreshSearchRows() {
+                                if (!root.searchBarVisible || root.searchMatches.length === 0) {
+                                    searchRows = []
+                                    searchCurRow = -1
+                                } else {
+                                    searchRows = terminalModel.rowsForEntryIndices(root.searchMatches)
+                                    searchCurRow = (root.searchCurrentIndex >= 0
+                                                    && root.searchCurrentIndex < searchRows.length)
+                                                 ? searchRows[root.searchCurrentIndex] : -1
+                                }
+                                markerCanvas.requestPaint()
+                            }
 
                             function refreshKwMarkers() {
                                 kwMarkers = terminalModel.highlightMarkers()
-                                markerCanvas.requestPaint()
+                                refreshSearchRows()
                             }
 
                             // 高流量節流: 連續 append 期間每 250ms 更新一次
@@ -3179,15 +3200,14 @@ Window {
                                         ctx.fillRect(0, (km[i].row / total) * (height - h), width, h)
                                     }
 
-                                    // 搜尋命中疊在上層
+                                    // 搜尋命中疊在上層(row 快照,-1 = 已被 filter 濾掉或 trim 掉)
                                     if (root.searchBarVisible) {
-                                        var matches = root.searchMatches
-                                        var cur = root.searchCurrentIndex >= 0
-                                            ? matches[root.searchCurrentIndex] : -1
+                                        var rows = markerBar.searchRows
+                                        var cur = markerBar.searchCurRow
                                         ctx.fillStyle = "rgba(255,170,0,0.6)"
-                                        for (var j = 0; j < matches.length; j++) {
-                                            if (matches[j] === cur) continue
-                                            ctx.fillRect(0, (matches[j] / total) * (height - h), width, h)
+                                        for (var j = 0; j < rows.length; j++) {
+                                            if (rows[j] < 0 || rows[j] === cur) continue
+                                            ctx.fillRect(0, (rows[j] / total) * (height - h), width, h)
                                         }
                                         if (cur >= 0) {
                                             ctx.fillStyle = "#ffaa00"
@@ -3200,8 +3220,8 @@ Window {
 
                             Connections {
                                 target: root
-                                function onSearchMatchesChanged()      { markerCanvas.requestPaint() }
-                                function onSearchCurrentIndexChanged() { markerCanvas.requestPaint() }
+                                function onSearchMatchesChanged()      { markerBar.refreshSearchRows() }
+                                function onSearchCurrentIndexChanged() { markerBar.refreshSearchRows() }
                             }
                             Connections {
                                 target: terminalModel
@@ -3646,6 +3666,14 @@ Window {
         onTriggered: seconds++
     }
 
+    // 搜尋中收到新資料時重算命中(leading-edge 節流,比照 kwMarkerRefreshTimer):
+    // 命中是搜尋當下的快照,不重算的話後來進的行永遠不會被標記
+    Timer {
+        id: searchRefreshTimer
+        interval: 400
+        onTriggered: refreshSearch()
+    }
+
     Connections {
         target: terminalModel
 
@@ -3659,6 +3687,8 @@ Window {
         function onEntriesFlushed() {
             if (root.autoScroll)
                 terminalView.positionViewAtEnd()
+            if (root.searchBarVisible && root.searchQuery !== "" && !searchRefreshTimer.running)
+                searchRefreshTimer.start()
         }
 
         // C++ 修剪後同步 QML 端選取/搜尋狀態
@@ -3671,8 +3701,9 @@ Window {
             }
             root.selectedSet = newSel
             root.selectionVersion++
+            // 命中是 entryIndex,trim 不會讓它錯位;重算只為剔除被砍掉的行(不必整組丟棄)
             if (root.searchMatches.length > 0)
-                root.clearSearchResults()
+                refreshSearch()
         }
     }
 
@@ -3826,9 +3857,18 @@ Window {
         root.searchMatches = []
         root.searchMatchSet = {}
         root.searchCurrentIndex = -1
-        root.searchCurrentRow = -1
+        root.searchCurrentEntry = -1
     }
 
+    function applySearchMatches(matches) {
+        root.searchMatches = matches
+        var set = {}
+        for (var i = 0; i < matches.length; i++)
+            set[matches[i]] = true
+        root.searchMatchSet = set
+    }
+
+    // 使用者主動搜尋: 命中重置到第一筆並捲過去
     function performSearch() {
         var q = root.searchQuery
         if (q === "") {
@@ -3837,20 +3877,48 @@ Window {
         }
 
         var matches = terminalModel.search(q, root.searchRegex, root.hexDisplayMode)
-
-        root.searchMatches = matches
-        var set = {}
-        for (var i = 0; i < matches.length; i++)
-            set[matches[i]] = true
-        root.searchMatchSet = set
+        applySearchMatches(matches)
         if (matches.length > 0) {
             root.searchCurrentIndex = 0
-            root.searchCurrentRow = matches[0]
-            terminalView.positionViewAtIndex(matches[0], ListView.Center)
+            root.searchCurrentEntry = matches[0]
+            scrollToMatch(0)
         } else {
             root.searchCurrentIndex = -1
-            root.searchCurrentRow = -1
+            root.searchCurrentEntry = -1
         }
+    }
+
+    // model 內容變動(新行 / trim / filter)後重算命中: 盡量保住目前 focus 行,且不搶捲動
+    function refreshSearch() {
+        if (!root.searchBarVisible || root.searchQuery === "") {
+            clearSearchResults()
+            return
+        }
+
+        var prev = root.searchCurrentEntry
+        var matches = terminalModel.search(root.searchQuery, root.searchRegex, root.hexDisplayMode)
+        applySearchMatches(matches)
+        if (matches.length === 0) {
+            root.searchCurrentIndex = -1
+            root.searchCurrentEntry = -1
+            return
+        }
+
+        // matches 依 entryIndex 遞增: 取第一個不早於原 focus 行者
+        // (原本那行被 trim 掉時自動退到後一個命中,而不是把使用者彈回開頭)
+        var idx = matches.length - 1
+        for (var i = 0; i < matches.length; i++) {
+            if (matches[i] >= prev) { idx = i; break }
+        }
+        root.searchCurrentIndex = idx
+        root.searchCurrentEntry = matches[idx]
+    }
+
+    // 命中存的是 entryIndex,捲動前換算成當下的 model row
+    function scrollToMatch(idx) {
+        var row = terminalModel.rowForEntryIndex(root.searchMatches[idx])
+        if (row >= 0)
+            terminalView.positionViewAtIndex(row, ListView.Center)
     }
 
     function jumpToMatch(direction) {
@@ -3861,8 +3929,8 @@ Window {
         if (idx < 0) idx = root.searchMatches.length - 1
 
         root.searchCurrentIndex = idx
-        root.searchCurrentRow = root.searchMatches[idx]
-        terminalView.positionViewAtIndex(root.searchMatches[idx], ListView.Center)
+        root.searchCurrentEntry = root.searchMatches[idx]
+        scrollToMatch(idx)
     }
 
     // ── Keyword Highlighting ────────────────────────────────────
@@ -4112,6 +4180,8 @@ Window {
     function clearTerminal() {
         terminalModel.clear()
         clearSelection()
+        // clear() 連 entryIndex 都歸零,舊命中一律作廢(否則新資料進來會標到毫不相干的行)
+        clearSearchResults()
     }
 
     function tryCopyFocusedTextInputSelection() {

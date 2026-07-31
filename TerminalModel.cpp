@@ -230,13 +230,30 @@ QVariantList TerminalModel::search(const QString &query, bool isRegex, bool hexM
     if (!re.isValid())
         return matches;
 
+    // 回傳 entryIndex(非 row):row 會隨 append/trim/filter 位移,呼叫端存起來就會錯位
     for (int row = 0; row < m_visible.size(); ++row) {
         const TerminalEntry &e = m_all.at(m_visible.at(row));
         const QString text = (hexMode && !e.raw.isEmpty()) ? hexString(e) : e.msgText;
         if (re.match(text).hasMatch())
-            matches.append(row);
+            matches.append(e.entryIndex);
     }
     return matches;
+}
+
+QVariantList TerminalModel::rowsForEntryIndices(const QVariantList &entryIndices) const
+{
+    // 輸入與 m_visible 的 entryIndex 皆遞增 → 單趟雙指針,免去逐筆二分
+    QVariantList result;
+    result.reserve(entryIndices.size());
+    int row = 0;
+    for (const QVariant &v : entryIndices) {
+        const int target = v.toInt();
+        while (row < m_visible.size() && m_all.at(m_visible.at(row)).entryIndex < target)
+            ++row;
+        result.append(row < m_visible.size() && m_all.at(m_visible.at(row)).entryIndex == target
+                      ? row : -1);
+    }
+    return result;
 }
 
 QVariantMap TerminalModel::get(int row) const

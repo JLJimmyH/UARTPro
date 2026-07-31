@@ -64,7 +64,10 @@ public:
     Q_INVOKABLE QVariantMap get(int row) const;
     Q_INVOKABLE void clear();
     Q_INVOKABLE void setFilters(const QVariantList &filters);
+    // 回傳命中的 entryIndex(遞增);row 會隨 append/trim/filter 位移,不可當持久索引
     Q_INVOKABLE QVariantList search(const QString &query, bool isRegex, bool hexMode) const;
+    // entryIndex[] → model row[](輸入需遞增,不在可見列者回 -1),scroll bar 標記用
+    Q_INVOKABLE QVariantList rowsForEntryIndices(const QVariantList &entryIndices) const;
     Q_INVOKABLE QVariantList allEntries() const;
     Q_INVOKABLE QVariantList visibleEntries() const;   // 只含通過 filter 的可見列
     Q_INVOKABLE QVariantList entryIndicesInRange(int loRow, int hiRow) const;
