@@ -19,7 +19,7 @@ void applyMacTitleBarStyle(QWindow *window)
         return;
 
     nsWindow.titlebarAppearsTransparent = YES;
-    nsWindow.titleVisibility = NSWindowTitleVisibilityHidden;
+    nsWindow.titleVisibility = NSWindowTitleHidden;
     nsWindow.styleMask |= NSWindowStyleMaskFullSizeContentView;
     // 拖曳交給 QML title bar 的 startSystemMove(),避免整片背景都能拖
     nsWindow.movableByWindowBackground = NO;
