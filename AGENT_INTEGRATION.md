@@ -107,7 +107,12 @@ Windows 的 COM port 是獨占開啟:GUI 開著時,第二個 process(headless �
 
 ### IPC 介面
 
-每個 UARTPro 實例(GUI 與 headless 都算)啟動時建立 named pipe `\\.\pipe\UARTPro.<pid>`(QLocalServer;協議為 NDJSON,一行一個 JSON object)。`--attach` 是同一顆 exe 內建的 client,一般情況不需要直接碰 pipe;非 Qt 工具也可以自行連 pipe 說同一套協議(見文末 wire protocol)。
+每個 UARTPro 實例(GUI 與 headless 都算)啟動時建立一個 `QLocalServer` 端點,協議為 NDJSON(一行一個 JSON object):
+
+- **Windows**:named pipe `\\.\pipe\UARTPro.<pid>`,process 結束時由 OS 自動移除。
+- **macOS**:`$TMPDIR` 下的 unix socket 檔 `UARTPro.<pid>`。與 named pipe 不同,process 結束後檔案會殘留,所以 `--attach list` 會逐一試連,連不上的視為已結束並順手清掉。
+
+`--attach` 是同一顆 exe 內建的 client,一般情況不需要直接碰 pipe;非 Qt 工具也可以自行連 pipe 說同一套協議(見文末 wire protocol)。
 
 ### 定址(多實例)
 
@@ -181,6 +186,21 @@ UARTPro.exe 是 GUI subsystem 執行檔:
   `$p = Start-Process bin\UARTPro.exe -ArgumentList '--headless','--port','COM3','--timeout','10' -Wait -PassThru; $p.ExitCode`
 - **cmd**:`start /wait bin\UARTPro.exe --headless ... & echo %errorlevel%`
 - stdout 重導向(`> file` 或 pipe)在三種 shell 下都正常,因為 handle 由父行程繼承。
+
+## macOS 上的差異
+
+- **執行檔路徑**:macOS 版是 `.app` bundle,CLI 要走 bundle 內的實體執行檔:
+
+```bash
+UARTPro.app/Contents/MacOS/UARTPro --list-ports
+UARTPro.app/Contents/MacOS/UARTPro --headless --port /dev/cu.usbserial-A50285BI --expect "BOOT OK" --timeout 10
+```
+
+- **port 名稱**:不是 `COMx` 而是 `/dev/cu.usbserial-*`(或 `/dev/cu.usbmodem*`)。
+  `--port` 傳 `QSerialPortInfo` 回報的名稱即可,別自己拼路徑。先用 `--list-ports` 拿實際值最保險。
+- **等待行為**:沒有 GUI subsystem 那套麻煩,任何 shell 下直接執行都會等待、拿得到 exit code、可以 pipe。
+- **Ctrl+C**:走 `SIGINT`/`SIGTERM`,與 Windows 的 console handler 一樣會讓 record 檔 flush、port 正常關閉後才退出。
+- **exit code 與 JSONL schema 兩平台完全一致**,自動化腳本不需要分平台寫。
 
 ## 未來規劃(設計草稿,尚未實作)
 

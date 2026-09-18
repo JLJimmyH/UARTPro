@@ -7,6 +7,10 @@ on:
     branches: [master]
   workflow_dispatch:
 
+# 失敗時把編譯錯誤貼成 commit comment(公開可讀),否則 job log 要 repo admin 權限才下載得到
+permissions:
+  contents: write
+
 jobs:
   build-macos:
     name: Universal .app (x86_64 + arm64)
@@ -37,7 +41,23 @@ jobs:
             -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
 
       - name: Build
-        run: cmake --build build
+        run: |
+          set -o pipefail
+          cmake --build build 2>&1 | tee build-output.log
+
+      - name: Report failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          log=$(tail -c 30000 build-output.log 2>/dev/null || echo "(no build output)")
+          body=$(printf 'macOS CI 失敗 (run %s)
+
+```
+%s
+```
+' "$GITHUB_RUN_ID" "$log")
+          gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" -f body="$body"
 
       # macdeployqt 把 Qt framework / QML module 複製進 bundle,-qmldir 讓它掃得到 import
       - name: Deploy Qt into bundle

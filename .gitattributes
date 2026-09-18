@@ -1,0 +1,7 @@
+# build.sh 與 CI workflow 必須是 LF。若被 Windows 的 autocrlf 轉成 CRLF,
+# macOS/Linux 執行時 shebang 會變成 "#!/usr/bin/env bash\r" → bad interpreter。
+*.sh  text eol=lf
+*.yml text eol=lf
+
+# Windows 批次檔相反,CRLF 才保險
+*.bat text eol=crlf
