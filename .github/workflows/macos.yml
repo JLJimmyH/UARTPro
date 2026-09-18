@@ -1,0 +1,79 @@
+name: macOS Build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    name: Universal .app (x86_64 + arm64)
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Qt 官方 macOS binary 本身即為 universal,所以單一 runner 就能產出雙架構
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.3'
+          host: mac
+          target: desktop
+          arch: clang_64
+          modules: 'qtserialport'
+          cache: true
+
+      - name: Install Ninja
+        run: brew install ninja
+
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
+
+      - name: Build
+        run: cmake --build build
+
+      # macdeployqt 把 Qt framework / QML module 複製進 bundle,-qmldir 讓它掃得到 import
+      - name: Deploy Qt into bundle
+        run: |
+          "$QT_ROOT_DIR/bin/macdeployqt" build/UARTPro.app -qmldir="$GITHUB_WORKSPACE"
+
+      # Apple Silicon 要求所有可執行碼至少有 ad-hoc 簽名才能啟動。
+      # 沒有 Developer ID 憑證,ad-hoc 簽名的 app 在別台 Mac 上仍會被 Gatekeeper 攔,
+      # 使用者需右鍵開啟或 xattr -dr com.apple.quarantine。
+      - name: Ad-hoc codesign
+        run: codesign --force --deep --sign - build/UARTPro.app
+
+      - name: Verify architectures
+        run: |
+          lipo -archs build/UARTPro.app/Contents/MacOS/UARTPro
+          lipo -archs build/UARTPro.app/Contents/MacOS/UARTPro | grep -q x86_64
+          lipo -archs build/UARTPro.app/Contents/MacOS/UARTPro | grep -q arm64
+          codesign --verify --verbose build/UARTPro.app
+
+      - name: Read version
+        id: ver
+        run: |
+          v=$(sed -n 's/.*APP_VERSION_STR[[:space:]]*"\([0-9.]*\)".*/\1/p' version.h)
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Create DMG
+        run: |
+          mkdir -p dist/dmgroot
+          cp -R build/UARTPro.app dist/dmgroot/
+          ln -s /Applications dist/dmgroot/Applications
+          hdiutil create -volname "UARTPro ${{ steps.ver.outputs.version }}" \
+            -srcfolder dist/dmgroot -ov -format UDZO \
+            "dist/UARTPro-${{ steps.ver.outputs.version }}-universal.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: UARTPro-macOS-universal-${{ steps.ver.outputs.version }}
+          path: dist/*.dmg
+          if-no-files-found: error
