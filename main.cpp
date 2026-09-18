@@ -111,6 +111,24 @@ static BOOL WINAPI consoleCtrlHandler(DWORD type)
 }
 #endif
 
+#ifdef Q_OS_MACOS
+#include "MacWindow.h"
+#endif
+
+#ifndef Q_OS_WIN
+#include <atomic>
+#include <csignal>
+
+// signal handler 裡只能碰 async-signal-safe 的東西,呼叫 Qt API 是未定義行為。
+// 所以這裡只立旗標,真正的收尾交給事件迴圈上的 timer。
+static std::atomic_bool g_interrupted{false};
+
+static void posixSignalHandler(int)
+{
+    g_interrupted.store(true);
+}
+#endif
+
 static bool hasArg(int argc, char *argv[], const char *name)
 {
     for (int i = 1; i < argc; ++i) {
@@ -245,6 +263,17 @@ static int runCli(int argc, char *argv[], bool listPorts)
 #ifdef Q_OS_WIN
     g_runner = &runner;
     SetConsoleCtrlHandler(consoleCtrlHandler, TRUE);
+#else
+    std::signal(SIGINT, posixSignalHandler);
+    std::signal(SIGTERM, posixSignalHandler);
+    QTimer interruptPoll;
+    QObject::connect(&interruptPoll, &QTimer::timeout, &runner, [&runner, &interruptPoll]() {
+        if (g_interrupted.load()) {
+            interruptPoll.stop();
+            runner.shutdown();   // 讓 record 檔 flush、port 正常關閉後才退出
+        }
+    });
+    interruptPoll.start(100);
 #endif
 
     const int rc = runner.start();
@@ -325,6 +354,13 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty(QStringLiteral("cmdLineBaud"),   cmdLineBaud);
     engine.rootContext()->setContextProperty(QStringLiteral("cmdLineRecord"), cmdLineRecord);
     engine.rootContext()->setContextProperty(QStringLiteral("cmdLineFormat"), cmdLineFormat);
+    // macOS 的紅綠燈按鈕疊在自訂 title bar 上,QML 要靠這個值讓出左側空間(其他平台為 0)
+#ifdef Q_OS_MACOS
+    engine.rootContext()->setContextProperty(QStringLiteral("macTitleBarInset"),
+                                             macTrafficLightsWidth());
+#else
+    engine.rootContext()->setContextProperty(QStringLiteral("macTitleBarInset"), 0);
+#endif
 
     const QUrl url(QStringLiteral("qrc:/qt/qml/UARTPro/main.qml"));
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreated, &app,
@@ -371,10 +407,30 @@ int main(int argc, char *argv[])
     }
 #endif
 
+#ifdef Q_OS_MACOS
+    if (window) {
+        applyMacTitleBarStyle(window);
+
+        // macOS 沒有 WM_DEVICECHANGE 這種全域裝置事件可攔,USB 轉接器熱插拔改用輪詢偵測。
+        // refreshPorts() 在清單沒變時不發 signal,所以不會干擾使用者已選的 port。
+        QTimer *portPollTimer = new QTimer(&app);
+        portPollTimer->setInterval(2000);
+        QObject::connect(portPollTimer, &QTimer::timeout,
+                         &serialManager, &SerialPortManager::refreshPorts);
+        portPollTimer->start();
+    }
+#endif
+
     // 視窗以 visible:false 建立,待無邊框樣式(去 WS_CAPTION + WM_NCCALCSIZE 攔截)套好才顯示,
     // 避免啟動時先閃一瞬原生白框再轉成無邊框介面。
     if (window)
         window->setVisible(true);
+
+#ifdef Q_OS_MACOS
+    // Qt 在 setVisible 時會重設 NSWindow 的 styleMask,顯示後必須再套一次才保得住
+    if (window)
+        QTimer::singleShot(0, window, [window]() { applyMacTitleBarStyle(window); });
+#endif
 
     return app.exec();
 }

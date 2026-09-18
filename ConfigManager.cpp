@@ -7,6 +7,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QSaveFile>
+#include <QStandardPaths>
 #include <QUrl>
 
 static const int SAVE_DEBOUNCE_MS = 500;
@@ -42,8 +43,17 @@ QString ConfigManager::toLocalPath(const QString &path)
 
 QString ConfigManager::defaultConfigPath() const
 {
+#ifdef Q_OS_WIN
+    // Windows 維持免安裝的綠色版行為:設定檔跟著 exe 走,整個資料夾複製就能搬家
     return QDir(QCoreApplication::applicationDirPath())
         .filePath(QStringLiteral("uartpro_config.json"));
+#else
+    // macOS:applicationDirPath 指到 UARTPro.app/Contents/MacOS,
+    // bundle 內部在簽章後不可寫(寫入會讓簽章失效),設定檔必須放使用者設定目錄
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation);
+    QDir().mkpath(dir);
+    return QDir(dir).filePath(QStringLiteral("uartpro_config.json"));
+#endif
 }
 
 // ── File operations ─────────────────────────────────

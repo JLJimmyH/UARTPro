@@ -8,6 +8,12 @@ endif()
 
 project(UARTPro LANGUAGES CXX)
 
+# MacWindow.mm 是 Objective-C++。OBJCXX 只能在 Apple 平台啟用,
+# 寫進 project(LANGUAGES) 會讓 Windows/Linux 的 configure 直接失敗。
+if(APPLE)
+    enable_language(OBJCXX)
+endif()
+
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -47,6 +53,11 @@ if(WIN32)
     target_sources(${PROJECT_NAME} PRIVATE app.rc)
 endif()
 
+# macOS 原生 titlebar 處理(見 MacWindow.h 的說明)
+if(APPLE)
+    target_sources(${PROJECT_NAME} PRIVATE MacWindow.h MacWindow.mm)
+endif()
+
 qt_add_qml_module(${PROJECT_NAME}
     URI UARTPro
     VERSION 1.0
@@ -78,3 +89,7 @@ endif()
 
 target_link_libraries(${PROJECT_NAME}
     PRIVATE Qt6::Quick Qt6::QuickControls2 Qt6::SerialPort Qt6::QuickDialogs2 Qt6::Network)
+
+if(APPLE)
+    target_link_libraries(${PROJECT_NAME} PRIVATE "-framework AppKit")
+endif()

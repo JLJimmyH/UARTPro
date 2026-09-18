@@ -67,10 +67,17 @@ qint64 SerialPortManager::txBytes() const { return m_txBytes; }
 
 void SerialPortManager::refreshPorts()
 {
-    m_availablePorts.clear();
+    QStringList found;
     const auto ports = QSerialPortInfo::availablePorts();
     for (const auto &port : ports)
-        m_availablePorts.append(port.portName() + QStringLiteral(" - ") + port.description());
+        found.append(port.portName() + QStringLiteral(" - ") + port.description());
+
+    // 清單沒變就不發 signal:熱插拔偵測(Windows WM_DEVICECHANGE 會連發、
+    // macOS 走定時輪詢)不該讓 QML 白重建 combo、干擾使用者已選的 port
+    if (found == m_availablePorts)
+        return;
+
+    m_availablePorts = found;
     emit availablePortsChanged();
 }
 

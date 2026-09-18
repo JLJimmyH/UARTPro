@@ -4,7 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-UARTPro — Qt 6 (6.2+) QML + C++ 無邊框 Windows 串列埠終端機。使用 `QSerialPort` 進行通訊、QML 做 UI、C++ 做資料層與 Win32 整合。目前開發 Qt 版本為 `D:/Qt/6.7.3/msvc2022_64`,建構工具為 MSVC 2022 + Ninja。
+UARTPro — Qt 6 (6.2+) QML + C++ 無邊框串列埠終端機,支援 Windows 與 macOS。使用 `QSerialPort` 進行通訊、QML 做 UI、C++ 做資料層與 OS 整合。
+
+- **Windows**(主要開發平台):Qt `D:/Qt/6.7.3/msvc2022_64`,MSVC 2022 + Ninja。
+- **macOS**:Qt 官方 binary 本身是 universal,單機即可產出 x86_64 + arm64 雙架構 `.app`。GitHub Actions 每次 push 會自動建構並產出 DMG,見 [.github/workflows/macos.yml](.github/workflows/macos.yml)。
 
 ## Build / Deploy 指令
 
@@ -23,6 +26,30 @@ UARTPro — Qt 6 (6.2+) QML + C++ 無邊框 Windows 串列埠終端機。使用 
 ```
 
 `build.bat` 預設為增量建構;懷疑 cache 壞掉或換 Qt 版本時用 `build.bat clean` 全清重建。
+
+### macOS
+
+`build.sh` 是 `build.bat` + `deploy.bat` 的 macOS 對應版本,參數可自由組合:
+
+```
+./build.sh                          增量建構(native 架構,最快)
+./build.sh clean                    全清重建
+./build.sh universal                產出 x86_64 + arm64 universal binary
+./build.sh deploy                   macdeployqt + ad-hoc 簽名,產出可發佈的 .app
+```
+
+Qt 路徑取 `$QT_ROOT` 環境變數,沒設就自動找 `~/Qt/6.*/macos` 的最新版。產出在 `build/UARTPro.app`。
+Ninja 有裝就用,沒裝自動退回預設 generator。
+
+macOS 版是 `.app` bundle,CLI 模式要走 bundle 內的實體執行檔:
+
+```
+open build/UARTPro.app
+build/UARTPro.app/Contents/MacOS/UARTPro --list-ports
+```
+
+沒有 Apple Developer 憑證時只有 ad-hoc 簽名,拿到別台 Mac 上會被 Gatekeeper 攔,
+需右鍵開啟或 `xattr -dr com.apple.quarantine UARTPro.app`。
 
 本專案無測試 target、無 lint 設定。
 
@@ -52,16 +79,49 @@ headless / list-ports / attach 的 exit codes、JSONL schema、attach wire proto
 - [FileLogger.h](FileLogger.h) / [.cpp](FileLogger.cpp) — 單一 log 檔的寫入器,含 `QTimer` 批次 flush、檔案大小追蹤。支援 `text` / `jsonl` 兩種格式(`startLogging(path, format)`、`logStructured`、批次 `logLines`)。
 - [HeadlessRunner.h](HeadlessRunner.h) / [.cpp](HeadlessRunner.cpp) — `--headless` 模式:錄製 / `--stdout` JSONL 串流 / `--expect` pattern 等待與 exit code,詳見 [AGENT_INTEGRATION.md](AGENT_INTEGRATION.md)。
 - [ConfigManager.h](ConfigManager.h) / [.cpp](ConfigManager.cpp) — JSON 設定持久化。所有 UI 偏好(uiScale、fontSize、currentTheme、showPrefix、hexDisplayMode、showTimestamp、showLineNumbers、colorNumbers、maxBufferLines)、`keywords`、`filters` 都經此存取。`scheduleSave()` 是 debounced save(QTimer single-shot),避免每個屬性變更就寫硬碟;載入中用 `m_loading` 旗標阻擋回寫。
+- [MacWindow.h](MacWindow.h) / [.mm](MacWindow.mm) — **僅 macOS 編譯**(CMake 以 `if(APPLE)` 納入,需 `enable_language(OBJCXX)` + AppKit)。Objective-C++,把 NSWindow 的 titlebar 透明化、標題隱藏、content view 延伸進 titlebar 區,讓自訂 title bar 畫得上去又保住原生紅綠燈與 resize。
 - [main.cpp](main.cpp) — 依 argv 分流 CLI(`runCli`,QCoreApplication)或 GUI(QGuiApplication、生成 manager + terminalModel 注入 QML、載入 `qrc:/qt/qml/UARTPro/main.qml`)。RX → terminalModel 的 connect 在這裡。
 
-### Win32 無邊框視窗處理
+### 無邊框視窗處理(Windows 與 macOS 走完全不同的路)
 
-這是本專案的架構關鍵,想改視窗行為必須同時動兩層:
+這是本專案的架構關鍵,想改視窗行為必須同時動 C++ 與 QML 兩層,且兩個平台的做法**不能互換**。
+
+#### Windows
 
 - **C++ 層**([main.cpp](main.cpp)):
   1. `WindowsFramelessEventFilter` 攔截 `WM_NCCALCSIZE` 並回傳 0 → 整個視窗都變成 client area(消掉標題列非客戶區)。
   2. `enableSnapForFramelessWindow()` 在保留 `WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MINIMIZEBOX | WS_SYSMENU` 的同時清掉 `WS_CAPTION`,這樣才能保留 Windows 原生的 Snap / resize / 最大最小化。
 - **QML 層**([main.qml](main.qml)): Window flag 設 `Qt.FramelessWindowHint`,自訂標題列用 `startSystemMove()` 啟動原生拖曳(含 Snap),四邊 + 四角 MouseArea 用 `startSystemResize(Qt.LeftEdge|...)` 啟動原生 resize。最大化/還原自行切換 `showMaximized()` / `showNormal()`。
+
+#### macOS
+
+macOS **不能**照搬 Windows 的做法,原因有兩個,兩個都是死路:
+
+1. 設 `Qt.FramelessWindowHint` 會連紅綠燈按鈕、原生 resize、全螢幕與 Mission Control 一起失去。
+2. Qt 在 cocoa 平台**沒有實作** `QWindow::startSystemResize()`(呼叫直接回 `false`),
+   所以就算自己畫 resize handle 也救不回來。
+
+因此 macOS 的策略是「保留原生視窗,只把 titlebar 藏起來」:
+
+- **C++ 層**([MacWindow.mm](MacWindow.mm)):`applyMacTitleBarStyle()` 設 NSWindow 的
+  `titlebarAppearsTransparent` + `titleVisibility = Hidden` + `NSWindowStyleMaskFullSizeContentView`。
+  **必須在 `setVisible(true)` 之後再套一次** —— Qt 在顯示視窗時會重設 `styleMask`,只套一次會被蓋掉。
+- **QML 層**([main.qml](main.qml)):`root.isMac`(`Qt.platform.os === "osx"`)分流 ——
+  `flags` 不帶 `FramelessWindowHint`、自訂的 min/max/close 按鈕隱藏(用原生紅綠燈)、
+  八個 resize handle 全部停用(原生邊框接手)、title bar 左側用 context property `macTitleBarInset`
+  讓出紅綠燈佔的 78px。`startSystemMove()` 在 cocoa 有實作,拖曳標題列照常可用。
+
+其他平台差異(同樣以 `#ifdef Q_OS_WIN` / `Q_OS_MACOS` 分流):
+
+| 項目 | Windows | macOS |
+|------|---------|-------|
+| 設定檔位置 | exe 同目錄(綠色版) | `QStandardPaths::AppConfigLocation`(bundle 內不可寫) |
+| 熱插拔偵測 | `WM_DEVICECHANGE` 事件 | 2 秒輪詢 `refreshPorts()` |
+| CLI Ctrl+C | `SetConsoleCtrlHandler` | `SIGINT`/`SIGTERM` → atomic 旗標 + timer 輪詢收尾 |
+| attach 實例探索 | 列舉 `\\.\pipe\*` | 列舉 `QDir::tempPath()` 下的 socket 檔,逐一試連濾掉殘留 |
+| 等寬字型 | Consolas | Menlo |
+
+> 註:`refreshPorts()` 在清單沒變時不發 `availablePortsChanged`,macOS 的輪詢才不會一直重建 combo。
 
 詳細設計理由與範例程式見 [QMLDesign.md](QMLDesign.md)。
 

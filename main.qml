@@ -16,7 +16,12 @@ Window {
         ? (portCombo.currentText.split(" - ")[0] + " @ " + baudCombo.currentText + " — " + appName)
         : appName + " // SERIAL TERMINAL v" + appVersion
     color: colorBg
-    flags: Qt.FramelessWindowHint | Qt.Window | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint
+    // macOS 不能用 FramelessWindowHint:會連紅綠燈、原生 resize、全螢幕一起失去,
+    // 而 Qt 在 cocoa 沒有實作 startSystemResize(),自訂 resize handle 也救不回來。
+    // 改為保留原生視窗、只把 titlebar 透明化,詳見 MacWindow.h。
+    flags: root.isMac
+        ? (Qt.Window | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint | Qt.WindowCloseButtonHint)
+        : (Qt.FramelessWindowHint | Qt.Window | Qt.WindowMinimizeButtonHint | Qt.WindowMaximizeButtonHint)
 
     // ── Frameless window state ────────────────────────────────────
     property bool isMaximized: false
@@ -128,7 +133,10 @@ Window {
     property color colorAccentTertiary:  "#00d4ff"
     property color colorBorder:          "#2a2a3a"
     property color colorDestructive:     "#ff3366"
-    readonly property string fontMono:   "Consolas"
+    readonly property bool isMac: Qt.platform.os === "osx"
+    // Consolas 是 Windows 專有字型,macOS 上會 fallback 成非等寬的預設字型,
+    // 終端機的字元對齊(選取、游標定位)會整個跑掉
+    readonly property string fontMono:   root.isMac ? "Menlo" : "Consolas"
 
     function applyTheme(index) {
         // config 手改越界(如 currentTheme: 99)時 t 為 undefined,
@@ -734,7 +742,8 @@ Window {
 
             RowLayout {
                 anchors.fill: parent
-                anchors.leftMargin: root.titleOnlyMode ? 10 : 20
+                // macOS 紅綠燈按鈕疊在 title bar 上,左側要讓位(其他平台 macTitleBarInset 為 0)
+                anchors.leftMargin: (root.titleOnlyMode ? 10 : 20) + macTitleBarInset
                 anchors.rightMargin: 0
                 spacing: root.titleOnlyMode ? 8 : 12
 
@@ -1022,7 +1031,9 @@ Window {
                 }
 
                 // ── Window control buttons ───────────────────
+                // macOS 用原生紅綠燈按鈕,不重複畫一組
                 Row {
+                    visible: !root.isMac
                     spacing: 0
 
                     // Minimize
@@ -3465,50 +3476,50 @@ Window {
     // ══════════════════════════════════════════════════════════════
     // Edges
     MouseArea {
-        z: 200; visible: !root.isMaximized
+        z: 200; visible: !root.isMaximized && !root.isMac
         width: 5; anchors { left: parent.left; top: parent.top; bottom: parent.bottom; topMargin: 5; bottomMargin: 5 }
         cursorShape: Qt.SizeHorCursor
         onPressed: root.startSystemResize(Qt.LeftEdge)
     }
     MouseArea {
-        z: 200; visible: !root.isMaximized
+        z: 200; visible: !root.isMaximized && !root.isMac
         width: 5; anchors { right: parent.right; top: parent.top; bottom: parent.bottom; topMargin: 5; bottomMargin: 5 }
         cursorShape: Qt.SizeHorCursor
         onPressed: root.startSystemResize(Qt.RightEdge)
     }
     MouseArea {
-        z: 200; visible: !root.isMaximized
+        z: 200; visible: !root.isMaximized && !root.isMac
         height: 5; anchors { top: parent.top; left: parent.left; right: parent.right; leftMargin: 5; rightMargin: 5 }
         cursorShape: Qt.SizeVerCursor
         onPressed: root.startSystemResize(Qt.TopEdge)
     }
     MouseArea {
-        z: 200; visible: !root.isMaximized
+        z: 200; visible: !root.isMaximized && !root.isMac
         height: 5; anchors { bottom: parent.bottom; left: parent.left; right: parent.right; leftMargin: 5; rightMargin: 5 }
         cursorShape: Qt.SizeVerCursor
         onPressed: root.startSystemResize(Qt.BottomEdge)
     }
     // Corners
     MouseArea {
-        z: 200; visible: !root.isMaximized
+        z: 200; visible: !root.isMaximized && !root.isMac
         width: 8; height: 8; anchors { left: parent.left; top: parent.top }
         cursorShape: Qt.SizeFDiagCursor
         onPressed: root.startSystemResize(Qt.LeftEdge | Qt.TopEdge)
     }
     MouseArea {
-        z: 200; visible: !root.isMaximized
+        z: 200; visible: !root.isMaximized && !root.isMac
         width: 8; height: 8; anchors { right: parent.right; top: parent.top }
         cursorShape: Qt.SizeBDiagCursor
         onPressed: root.startSystemResize(Qt.RightEdge | Qt.TopEdge)
     }
     MouseArea {
-        z: 200; visible: !root.isMaximized
+        z: 200; visible: !root.isMaximized && !root.isMac
         width: 8; height: 8; anchors { left: parent.left; bottom: parent.bottom }
         cursorShape: Qt.SizeBDiagCursor
         onPressed: root.startSystemResize(Qt.LeftEdge | Qt.BottomEdge)
     }
     MouseArea {
-        z: 200; visible: !root.isMaximized
+        z: 200; visible: !root.isMaximized && !root.isMac
         width: 8; height: 8; anchors { right: parent.right; bottom: parent.bottom }
         cursorShape: Qt.SizeFDiagCursor
         onPressed: root.startSystemResize(Qt.RightEdge | Qt.BottomEdge)

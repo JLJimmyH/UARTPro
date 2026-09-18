@@ -1,9 +1,11 @@
 #include "AttachClient.h"
 #include <QCommandLineParser>
 #include <QCoreApplication>
+#include <QDir>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLocalServer>
 #include <QLocalSocket>
 #include <cstdio>
 
@@ -38,7 +40,8 @@ void printErrJson(const QString &error, const QJsonObject &extra = {})
     fflush(stderr);
 }
 
-// pipe namespace 可直接列舉:\\.\pipe\* 回傳所有 pipe 名(不含前綴)
+// Windows: pipe namespace 可直接列舉,pipe 名不含前綴
+// macOS/Linux: QLocalServer 是 QDir::tempPath() 下的 unix socket 檔
 QList<qint64> discoverPids()
 {
     QList<qint64> pids;
@@ -57,6 +60,27 @@ QList<qint64> discoverPids()
         }
     } while (FindNextFileW(h, &fd));
     FindClose(h);
+#else
+    // Windows 的 named pipe 隨 process 消失,unix socket 檔卻會留在磁碟上。
+    // 光看檔名會把已結束的實例也算進來,所以逐一試連,連得上才算活著。
+    const QDir tmp(QDir::tempPath());
+    const auto entries = tmp.entryList(QStringList{QStringLiteral("UARTPro.*")},
+                                       QDir::System | QDir::Files | QDir::NoDotAndDotDot);
+    for (const QString &name : entries) {
+        bool ok = false;
+        const qint64 pid = name.mid(8).toLongLong(&ok);
+        if (!ok)
+            continue;
+        QLocalSocket probe;
+        probe.connectToServer(name);
+        if (probe.waitForConnected(300)) {
+            probe.disconnectFromServer();
+            pids.append(pid);
+        } else {
+            // 前一個實例沒收乾淨的殘留 socket,順手清掉免得每次都試連逾時
+            QLocalServer::removeServer(name);
+        }
+    }
 #endif
     return pids;
 }
