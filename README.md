@@ -6,6 +6,11 @@
 
 到 [Releases](https://github.com/JLJimmyH/UARTPro/releases) 拿。macOS 版是 universal binary,Apple Silicon 和 Intel 共用一個檔。
 
+| 檔案 | 適用 |
+|------|------|
+| `UARTPro-x.y.z-universal.dmg` | macOS 12.0 以上 |
+| `UARTPro-x.y.z-macOS10.14-legacy.dmg` | macOS 10.14 – 11,用較舊的 Qt 6.2 編 |
+
 macOS 第一次開會被 Gatekeeper 擋(只有 ad-hoc 簽名),右鍵 → 開啟,或:
 
 ```bash
@@ -40,6 +45,23 @@ build.bat && deploy.bat
 ```
 
 產出在 `bin\`。
+
+### 舊版 macOS(10.14 – 11)
+
+`build.sh` 用的 Qt 6.7 最低只到 macOS 12。要更舊得改用 Qt 6.2 —— 官方最後一個支援 10.14 的 Qt 6:
+
+```bash
+cmake -S . -B build-legacy -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_PREFIX_PATH="$HOME/Qt/6.2.4/macos" \
+  -DCMAKE_OSX_ARCHITECTURES="x86_64;arm64" \
+  -DCMAKE_OSX_DEPLOYMENT_TARGET=10.14
+cmake --build build-legacy
+~/Qt/6.2.4/macos/bin/macdeployqt build-legacy/UARTPro.app -qmldir="$PWD"
+codesign --force --deep --sign - build-legacy/UARTPro.app
+```
+
+Qt 6.2 已無安全性更新,這條路線只為了相容舊機器。
 
 ## 自動化
 
