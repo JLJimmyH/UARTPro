@@ -29,6 +29,25 @@ endif()
 find_package(Qt6 6.2 COMPONENTS Quick QuickControls2 SerialPort QuickDialogs2 Network REQUIRED)
 qt_policy(SET QTP0001 NEW)
 
+# Qt 6.7 以前的 FindWrapOpenGL.cmake 會把 AGL.framework 掛進 WrapOpenGL::WrapOpenGL。
+# AGL 是 Carbon 時代的 OpenGL 遺留框架,Xcode 15 以後的 macOS SDK 已經拿掉它,
+# 但 /System/Library/Frameworks/AGL.framework 仍以 dyld shared cache 空殼目錄的形式
+# 存在,於是 find_library 「找得到」、linker 卻連不到,link 階段死在:
+#     ld: framework 'AGL' not found
+# Qt 6.8 起上游已移除此相依,Qt 也從未真的呼叫 AGL API,直接剝掉即可。
+# 只在目前 SDK 確實缺 AGL 時才動手,舊 Xcode(如 CI 的 macos-14)行為完全不變。
+if(APPLE AND TARGET WrapOpenGL::WrapOpenGL)
+    if(NOT CMAKE_OSX_SYSROOT OR NOT EXISTS "${CMAKE_OSX_SYSROOT}/System/Library/Frameworks/AGL.framework")
+        get_target_property(_wrap_gl_libs WrapOpenGL::WrapOpenGL INTERFACE_LINK_LIBRARIES)
+        if(_wrap_gl_libs)
+            list(FILTER _wrap_gl_libs EXCLUDE REGEX "AGL\\.framework|-framework[ \t]+AGL")
+            set_target_properties(WrapOpenGL::WrapOpenGL PROPERTIES
+                INTERFACE_LINK_LIBRARIES "${_wrap_gl_libs}")
+            message(STATUS "目前的 macOS SDK 沒有 AGL.framework,已從 WrapOpenGL 移除該相依")
+        endif()
+    endif()
+endif()
+
 qt_add_executable(${PROJECT_NAME}
     main.cpp
     SerialPortManager.h

@@ -49,10 +49,13 @@ if [[ $DO_CLEAN -eq 1 ]]; then
 fi
 
 if [[ ! -f "$BUILD_DIR/CMakeCache.txt" ]]; then
+    # 不指定的話 CMake 會拿建構機的 macOS 版本當 deployment target,
+    # 做出來的 .app 在舊系統直接開不起來。與 CI 一致固定 12.0,可用環境變數覆寫。
     CMAKE_ARGS=(
         -S . -B "$BUILD_DIR"
         -DCMAKE_BUILD_TYPE=Release
         -DCMAKE_PREFIX_PATH="$QT_ROOT"
+        -DCMAKE_OSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-12.0}"
     )
     # ninja 有就用,沒有就退回預設 generator,不強迫額外安裝
     command -v ninja >/dev/null 2>&1 && CMAKE_ARGS+=(-G Ninja)
