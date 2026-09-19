@@ -27,7 +27,10 @@ if(NOT APP_VERSION)
 endif()
 
 find_package(Qt6 6.2 COMPONENTS Quick QuickControls2 SerialPort QuickDialogs2 Network REQUIRED)
-qt_policy(SET QTP0001 NEW)
+# qt_policy 是 Qt 6.5 才有的;Qt 6.2 沒有這個指令。
+if(COMMAND qt_policy)
+    qt_policy(SET QTP0001 NEW)
+endif()
 
 # Qt 6.7 以前的 FindWrapOpenGL.cmake 會把 AGL.framework 掛進 WrapOpenGL::WrapOpenGL。
 # AGL 是 Carbon 時代的 OpenGL 遺留框架,Xcode 15 以後的 macOS SDK 已經拿掉它,
@@ -80,6 +83,8 @@ endif()
 qt_add_qml_module(${PROJECT_NAME}
     URI UARTPro
     VERSION 1.0
+    # 明確指定,否則 Qt 6.2(無 QTP0001)會放在 qrc:/UARTPro/ 而不是 qrc:/qt/qml/UARTPro/
+    RESOURCE_PREFIX "/qt/qml"
     QML_FILES
         main.qml
         CyberButton.qml
